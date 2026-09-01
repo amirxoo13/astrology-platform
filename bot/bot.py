@@ -99,6 +99,22 @@ class LocationError(ValueError):
     """Raised when the user-provided location/coordinates cannot be resolved."""
 
 
+def looks_like_coordinates(text):
+    """Heuristic to decide whether input should be parsed as 'lat,lon'.
+
+    Treats the input as coordinates only if it contains at least one digit
+    and no letters (of any script), so city names like "Tehran, Iran" or
+    "تهران" are routed to geocoding while numeric-only input (including
+    malformed cases like "1,2,3") is routed to coordinate parsing/validation.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return False
+    has_letter = any(ch.isalpha() for ch in stripped)
+    has_digit = any(ch.isdigit() for ch in stripped)
+    return has_digit and not has_letter
+
+
 def parse_coordinates(text):
     """Parse a 'lat,lon' string into validated floats.
 
@@ -401,7 +417,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text_stripped = text.strip()
 
             try:
-                if ',' in text_stripped:
+                if looks_like_coordinates(text_stripped):
                     lat, lon = parse_coordinates(text_stripped)
                     location_name = f"{lat}, {lon}"
                 else:

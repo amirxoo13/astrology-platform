@@ -62,10 +62,15 @@ else
     echo -e "${GREEN}✅ فایل‌های Ephemeris موجود است${NC}"
 fi
 
-# Setup web files
+# Setup web files (they already live in this repository's own web/ directory,
+# right next to this script; verify they're present rather than copying from
+# an unrelated path).
 echo -e "${YELLOW}🌐 تنظیم فایل‌های وب...${NC}"
-if [ "$SCRIPT_DIR/web" != "$(pwd)/web" ]; then
-    cp -r "$SCRIPT_DIR"/web/* web/ 2>/dev/null || echo "Web files will be created by containers"
+if [ -f "web/index.html" ]; then
+    echo -e "${GREEN}✅ فایل‌های وب موجود است${NC}"
+else
+    echo -e "${RED}❌ فایل‌های وب یافت نشدند (web/index.html)${NC}"
+    HEALTH_OK=false
 fi
 
 # Configure firewall
