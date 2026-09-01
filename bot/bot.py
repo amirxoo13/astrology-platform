@@ -20,7 +20,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuration
-BOT_TOKEN = os.getenv('BOT_TOKEN')
+BOT_TOKEN = os.getenv('BOT_TOKEN', '***:***')
 API_BASE_URL = os.getenv('API_BASE_URL', 'http://ephemeris-api:8000')
 
 # User state management
