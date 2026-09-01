@@ -1,11 +1,13 @@
-version: '3.8'
-
 services:
   # Swiss Ephemeris API
   ephemeris-api:
     build:
       context: ./api
       dockerfile: Dockerfile
+    # A fixed container_name prevents running more than one instance of this
+    # compose project on the same Docker host (e.g. for scaling/staging).
+    # Remove it (or override it per-environment via COMPOSE_PROJECT_NAME) if
+    # you need to run multiple copies side by side.
     container_name: astrology-api
     restart: unless-stopped
     environment:
@@ -17,6 +19,15 @@ services:
     # No ports published: the API is only reachable from other containers on
     # astrology-net (e.g. telegram-bot, nginx). External access must go
     # through the Nginx reverse proxy (web-server) at /api/.
+    healthcheck:
+      # curl/wget are intentionally not present in the final API image
+      # (multi-stage build strips build-time tools), so use Python's
+      # standard library, which is always available, to hit /health.
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   # Telegram Bot
   telegram-bot:
@@ -28,13 +39,14 @@ services:
     env_file:
       - .env
     depends_on:
-      - ephemeris-api
+      ephemeris-api:
+        condition: service_healthy
     networks:
       - astrology-net
 
   # Web Server for Charts
   web-server:
-    image: nginx:alpine
+    image: nginx:1.27-alpine
     container_name: astrology-web
     restart: unless-stopped
     ports:
@@ -43,9 +55,30 @@ services:
       - ./web:/usr/share/nginx/html:ro
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - ephemeris-api
+      ephemeris-api:
+        condition: service_healthy
     networks:
       - astrology-net
+    # Run as the image's built-in unprivileged "nginx" user with a read-only
+    # root filesystem. NET_BIND_SERVICE is required (and re-added after
+    # dropping ALL) so the still-root master process can bind to port 80;
+    # writable paths nginx needs at runtime are provided as tmpfs mounts.
+    user: "101:101"
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    tmpfs:
+      - /var/cache/nginx:mode=1777
+      - /var/run:mode=1777
+      - /tmp:mode=1777
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
 networks:
   astrology-net:
