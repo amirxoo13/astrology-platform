@@ -2,4 +2,3 @@ python-telegram-bot==22.8
 httpx==0.28.1
 timezonefinder==8.3.0
 geopy==2.5.0
-pytz==2024.1

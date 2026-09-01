@@ -12,8 +12,8 @@
 
 ## پورت‌های استفاده شده
 
-- **8000** - Swiss Ephemeris API
-- **8080** - وب سرور نمایش چارت‌ها
+- **8000** - Swiss Ephemeris API (فقط داخلی؛ از طریق شبکه Docker، بدون انتشار به هاست)
+- **8080** - وب سرور نمایش چارت‌ها (شامل proxy برای API در مسیر /api/)
 - **پورت 443 دست نخورده** - 3x UI بدون تغییر
 
 ## نصب و راه‌اندازی
@@ -46,7 +46,7 @@ sudo docker-compose ps
 ### دسترسی
 
 - **وب سرور**: http://155.103.71.163:8080
-- **API**: http://155.103.71.163:8000
+- **API**: http://155.103.71.163:8080/api/ (پورت 8000 خام منتشر نشده و فقط داخل شبکه Docker در دسترس است)
 - **بات تلگرام**: @YourBotName (از طریق تلگرام)
 
 ## دستورات مدیریت
@@ -82,7 +82,7 @@ sudo docker-compose logs telegram-bot
 
 ### API پاسخ نمی‌دهد
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:8080/api/health
 sudo docker-compose logs ephemeris-api
 ```
 
