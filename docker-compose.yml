@@ -14,8 +14,9 @@ services:
       - ./ephe:/app/ephe:ro
     networks:
       - astrology-net
-    ports:
-      - "8000:8000"
+    # No ports published: the API is only reachable from other containers on
+    # astrology-net (e.g. telegram-bot, nginx). External access must go
+    # through the Nginx reverse proxy (web-server) at /api/.
 
   # Telegram Bot
   telegram-bot:
