@@ -18,6 +18,6 @@ venv/
 docker-compose.override.yml
 docker-compose.override.yaml
 
-# Ephemeris data (baked into API image; any local copy is not source-controlled)
-ephe/
+# Host-level ephemeris scratch dir only. Vendored API ephemeris under
+# api/swiss-ephemeris-api/ephe/ is tracked so Docker COPY and local runs work.
 /ephe/

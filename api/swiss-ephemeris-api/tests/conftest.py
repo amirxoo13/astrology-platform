@@ -8,7 +8,6 @@ def _find_ephe_path() -> str:
         os.environ.get("EPHE_PATH", ""),
         os.path.join(os.path.dirname(__file__), "..", "ephe"),
         "./ephe",
-        "/Users/tronglb/Task/Velora-Workspace/swiss-ephemeris-api/ephe",
     ]
     for p in candidates:
         if p and (os.path.isdir(p) or os.path.isfile(os.path.join(p, "sepl_18.se1"))):

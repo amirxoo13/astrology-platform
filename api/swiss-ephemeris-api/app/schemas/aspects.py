@@ -15,7 +15,7 @@ class AspectNameEnum(str, Enum):
     SESQUIQUADRATE = "SESQUIQUADRATE"
     QUINTILE = "QUINTILE"
     BIQUINTILE = "BIQUINTILE"
-    TREdecILE = "TREDEGILE"
+    TREDECILE = "TREDEGILE"
 
 
 # Standard major aspects: conjunction through sextile only

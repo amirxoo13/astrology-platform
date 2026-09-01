@@ -1,6 +1,7 @@
 import asyncio
 import logging
 
+import swisseph as swe
 from fastapi import APIRouter, HTTPException
 
 from app.schemas.aspects import (
@@ -115,9 +116,22 @@ async def get_aspects(req: AspectsRequest) -> AspectsResponse:
     )
 
 
-# Planet name -> swe constant (same as in planets.py, copied here to avoid circular imports)
+# Planet name -> swe constant (same as planets.py; use swe.* so asteroids
+# are not confused with Moon/Mercury/Venus/Mars body numbers).
 _PLANET_MAP: dict[str, int] = {
-    "SUN": 0, "MOON": 1, "MERCURY": 2, "VENUS": 3, "MARS": 4,
-    "JUPITER": 5, "SATURN": 6, "URANUS": 7, "NEPTUNE": 8, "PLUTO": 9,
-    "CHIRON": 15, "CERES": 1, "PALLAS": 2, "JUNO": 3, "VESTA": 4,
+    "SUN": swe.SUN,
+    "MOON": swe.MOON,
+    "MERCURY": swe.MERCURY,
+    "VENUS": swe.VENUS,
+    "MARS": swe.MARS,
+    "JUPITER": swe.JUPITER,
+    "SATURN": swe.SATURN,
+    "URANUS": swe.URANUS,
+    "NEPTUNE": swe.NEPTUNE,
+    "PLUTO": swe.PLUTO,
+    "CHIRON": swe.CHIRON,
+    "CERES": swe.CERES,
+    "PALLAS": swe.PALLAS,
+    "JUNO": swe.JUNO,
+    "VESTA": swe.VESTA,
 }
