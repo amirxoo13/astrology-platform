@@ -14,5 +14,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag my-image-name:$(date +%s)
+    - name: Build the API Docker image
+      run: docker build ./api --file api/Dockerfile --tag astrology-api:$(date +%s)
+    - name: Build the Bot Docker image
+      run: docker build ./bot --file bot/Dockerfile --tag astrology-bot:$(date +%s)
