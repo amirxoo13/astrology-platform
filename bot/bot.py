@@ -63,9 +63,30 @@ PLANET_SYMBOLS = {
     'Pallas': '●', 'Juno': '●', 'Vesta': '●'
 }
 
+# Ecliptic longitude of a body/house is exposed as `longitude` for planets and
+# as `cusp` for houses by the Swiss Ephemeris API.
+SIGN_ELEMENTS = {
+    'Aries': 'Fire', 'Leo': 'Fire', 'Sagittarius': 'Fire',
+    'Taurus': 'Earth', 'Virgo': 'Earth', 'Capricorn': 'Earth',
+    'Gemini': 'Air', 'Libra': 'Air', 'Aquarius': 'Air',
+    'Cancer': 'Water', 'Scorpio': 'Water', 'Pisces': 'Water',
+}
+
+
+def _ecliptic_longitude(pos):
+    """Return the ecliptic longitude of a chart point.
+
+    Planet entries expose it as ``longitude`` while house entries expose it as
+    ``cusp``; accept either so the same formatter works for both.
+    """
+    if 'longitude' in pos:
+        return pos['longitude']
+    return pos.get('cusp', 0.0)
+
+
 def format_position(pos):
-    """Format planet position to readable string"""
-    lon = pos['longitude']
+    """Format a planet/house position into a readable degree-in-sign string."""
+    lon = _ecliptic_longitude(pos)
     sign = pos['sign']
     degree = int(lon % 30)
     minute = int((lon % 1) * 60)
@@ -76,6 +97,32 @@ def format_position(pos):
     retro = " ℞" if pos.get('retrograde', False) else ""
     
     return f"{degree}°{minute:02d}'{second:02d}\" {sign_name}{retro}"
+
+
+def house_of(longitude, houses):
+    """Return the house number (1-12) a given ecliptic longitude falls in.
+
+    The API returns planet positions without a house assignment, so derive it
+    from the house cusps. Handles the 0°/360° wrap between the last and first
+    cusp. Returns ``None`` when houses are unavailable.
+    """
+    if not houses:
+        return None
+    cusps = sorted(
+        ((h['house'], h.get('cusp', 0.0) % 360) for h in houses),
+        key=lambda item: item[0],
+    )
+    lon = longitude % 360
+    count = len(cusps)
+    for index in range(count):
+        number, start = cusps[index]
+        _, end = cusps[(index + 1) % count]
+        if start <= end:
+            if start <= lon < end:
+                return number
+        elif lon >= start or lon < end:  # segment wraps past 360°
+            return number
+    return None
 
 async def call_api(endpoint, data):
     """Call Swiss Ephemeris API asynchronously (non-blocking for the bot's event loop)"""
@@ -189,8 +236,9 @@ def generate_chart_text(chart_data, aspects_data, user_name):
         name = planet.get('name', '')
         symbol = PLANET_SYMBOLS.get(name, '•')
         pos = format_position(planet)
-        house_num = planet.get('house', '?')
-        text += f"{symbol} {name}: {pos} (خانه {house_num})\n"
+        house_num = house_of(planet.get('longitude', 0.0), houses)
+        house_label = f" (خانه {house_num})" if house_num else ""
+        text += f"{symbol} {name}: {pos}{house_label}\n"
     
     text += "\n🏠 *خانه‌های اصلی:*\n"
     angle_houses = [(1, 'ASC'), (4, 'IC'), (7, 'DSC'), (10, 'MC')]
@@ -209,7 +257,7 @@ def generate_chart_text(chart_data, aspects_data, user_name):
     for aspect in aspects[:10]:  # Top 10 aspects
         p1 = aspect.get('planet1', '')
         p2 = aspect.get('planet2', '')
-        atype = aspect.get('aspect', '')
+        atype = aspect.get('aspect_name', aspect.get('aspect', ''))
         symbol = aspect_types.get(atype, '•')
         orb = aspect.get('orb', 0)
         orb_deg = int(orb)
@@ -222,7 +270,9 @@ def generate_chart_text(chart_data, aspects_data, user_name):
     element_counts = {'Fire': 0, 'Earth': 0, 'Air': 0, 'Water': 0}
     
     for planet in positions:
-        element = planet.get('element')
+        # The API does not tag positions with an element, so derive it from the
+        # planet's zodiac sign.
+        element = planet.get('element') or SIGN_ELEMENTS.get(planet.get('sign'))
         if element in element_counts:
             element_counts[element] += 1
     
