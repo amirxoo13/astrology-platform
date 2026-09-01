@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>پلتفرم استرولوژی حرفه‌ای</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0a0e1a 0%, #1a1f35 100%);
+            color: #e8e8e8;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            padding: 40px 20px;
+            background: rgba(212, 175, 55, 0.1);
+            border: 2px solid #d4af37;
+            border-radius: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            font-size: 3em;
+            color: #d4af37;
+            text-shadow: 0 0 30px rgba(212, 175, 55, 0.5);
+            margin-bottom: 15px;
+        }
+        
+        .header p {
+            font-size: 1.2em;
+            color: #c0c0c0;
+        }
+        
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .feature-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(212, 175, 55, 0.3);
+            border-radius: 10px;
+            padding: 25px;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(212, 175, 55, 0.2);
+        }
+        
+        .feature-card h3 {
+            color: #d4af37;
+            font-size: 1.5em;
+            margin-bottom: 15px;
+        }
+        
+        .feature-card p {
+            color: #c0c0c0;
+            line-height: 1.6;
+        }
+        
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .status-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(212, 175, 55, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 10px;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-online {
+            background: #00ff00;
+            box-shadow: 0 0 10px #00ff00;
+        }
+        
+        .status-offline {
+            background: #ff0000;
+            box-shadow: 0 0 10px #ff0000;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .cta-button {
+            display: inline-block;
+            padding: 15px 40px;
+            background: linear-gradient(135deg, #d4af37 0%, #f4cf57 100%);
+            color: #0a0e1a;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1.1em;
+            transition: transform 0.3s, box-shadow 0.3s;
+            margin: 10px;
+        }
+        
+        .cta-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 20px rgba(212, 175, 55, 0.5);
+        }
+        
+        .info-section {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(212, 175, 55, 0.3);
+            border-radius: 10px;
+            padding: 25px;
+            margin-bottom: 20px;
+        }
+        
+        .info-section h2 {
+            color: #d4af37;
+            margin-bottom: 15px;
+        }
+        
+        .code-block {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(212, 175, 55, 0.2);
+            border-radius: 5px;
+            padding: 15px;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+            overflow-x: auto;
+            direction: ltr;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌟 پلتفرم استرولوژی حرفه‌ای 🌟</h1>
+            <p>دقیق‌ترین محاسبات نجومی با Swiss Ephemeris</p>
+        </div>
+        
+        <div class="status-grid" id="statusGrid">
+            <div class="status-card">
+                <span class="status-indicator status-online"></span>
+                <strong>Swiss Ephemeris API</strong>
+                <div id="apiStatus">در حال بررسی...</div>
+            </div>
+            <div class="status-card">
+                <span class="status-indicator status-online"></span>
+                <strong>وب سرور</strong>
+                <div>فعال ✓</div>
+            </div>
+            <div class="status-card">
+                <span class="status-indicator status-online"></span>
+                <strong>بات تلگرام</strong>
+                <div>فعال ✓</div>
+            </div>
+        </div>
+        
+        <div class="features">
+            <div class="feature-card">
+                <h3>🪐 Swiss Ephemeris</h3>
+                <p>محاسبات نجومی دقیق با استفاده از استاندارد جهانی Swiss Ephemeris. پشتیبانی از 15 سیاره و سیارک با دقت ثانیه‌ای.</p>
+            </div>
+            <div class="feature-card">
+                <h3>🏠 سیستم‌های خانه</h3>
+                <p>پشتیبانی از Placidus و 14 سیستم خانه دیگر. محاسبه دقیق cusps با الگوریتم‌های پیشرفته.</p>
+            </div>
+            <div class="feature-card">
+                <h3>✨ جنبه‌ها</h3>
+                <p>تحلیل کامل جنبه‌ها شامل مقارنه، تقابل، تثلیث، مربع، و سکستیل با orb دقیق.</p>
+            </div>
+            <div class="feature-card">
+                <h3>🔥 توزیع عناصر</h3>
+                <p>محاسبه توزیع عناصر (آتش، زمین، هوا، آب) با سیستم وزن‌دهی حرفه‌ای مانند Astro-Seek.</p>
+            </div>
+            <div class="feature-card">
+                <h3>👑 سیارات حاکم</h3>
+                <p>رتبه‌بندی سیارات حاکم با امتیازدهی مدرن شامل Sign، House، Angle، Ruler، و Aspects.</p>
+            </div>
+            <div class="feature-card">
+                <h3>⚡ تحلیل سرعت</h3>
+                <p>مقایسه سرعت سیارات با میانگین. تشخیص حرکت سریع، کند، و برگشتی (Retrograde).</p>
+            </div>
+        </div>
+        
+        <div class="info-section">
+            <h2>🤖 استفاده از بات تلگرام</h2>
+            <p>برای ساخت چارت ناتال از طریق تلگرام:</p>
+            <ol style="margin-right: 20px; margin-top: 15px; line-height: 2;">
+                <li>در تلگرام بات را پیدا کنید و /start را بزنید</li>
+                <li>روی "🌟 ساخت چارت ناتال" کلیک کنید</li>
+                <li>نام شخص را وارد کنید</li>
+                <li>تاریخ تولد (YYYY-MM-DD) را وارد کنید</li>
+                <li>ساعت تولد (HH:MM) را وارد کنید</li>
+                <li>نام شهر یا مختصات (lat,lon) را وارد کنید</li>
+                <li>اطلاعات را تایید کنید و چارت خود را دریافت کنید!</li>
+            </ol>
+        </div>
+        
+        <div class="info-section">
+            <h2>🌐 استفاده از API</h2>
+            <p>برای توسعه‌دهندگان:</p>
+            <div class="code-block">
+# چک کردن سلامت API
+curl http://localhost:8000/health
+
+# ساخت چارت ناتال
+curl -X POST http://localhost:8000/api/v1/birth-chart \
+  -H "Content-Type: application/json" \
+  -d '{
+    "datetime": "1879-03-14T11:30:00",
+    "timezone": "UTC",
+    "latitude": 48.40,
+    "longitude": 9.99
+  }'
+            </div>
+        </div>
+        
+        <div class="info-section">
+            <h2>📊 ویژگی‌های حرفه‌ای</h2>
+            <ul style="margin-right: 20px; line-height: 2;">
+                <li>✅ 15 سیاره و سیارک (Sun, Moon, Mercury, Venus, Mars, Jupiter, Saturn, Uranus, Neptune, Pluto, Chiron, Ceres, Pallas, Juno, Vesta)</li>
+                <li>✅ 12 خانه با سیستم Placidus (و 14 سیستم دیگر)</li>
+                <li>✅ جنبه‌های اصلی (Conjunction, Opposition, Trine, Square, Sextile)</li>
+                <li>✅ توزیع عناصر با وزن‌دهی حرفه‌ای</li>
+                <li>✅ سیارات حاکم (Dominant Planets)</li>
+                <li>✅ تحلیل سرعت سیارات</li>
+                <li>✅ تشخیص حرکت برگشتی (Retrograde)</li>
+                <li>✅ محاسبات دقیق با Swiss Ephemeris</li>
+                <li>✅ پشتیبانی از زودیاک Tropical و Sidereal</li>
+                <li>✅ API کامل برای توسعه‌دهندگان</li>
+            </ul>
+        </div>
+        
+        <div style="text-align: center; margin-top: 40px;">
+            <a href="https://t.me/YourBotName" class="cta-button">🤖 شروع با بات تلگرام</a>
+            <a href="/api/health" class="cta-button">🔌 تست API</a>
+        </div>
+        
+        <div style="text-align: center; margin-top: 40px; color: #888; font-size: 0.9em;">
+            <p>ساخته شده با ❤️ و Swiss Ephemeris</p>
+            <p>© 2024 پلتفرم استرولوژی حرفه‌ای</p>
+        </div>
+    </div>
+    
+    <script>
+        // Check API status
+        async function checkAPI() {
+            try {
+                const response = await fetch('/api/health');
+                const data = await response.json();
+                if (data.status === 'ok') {
+                    document.getElementById('apiStatus').textContent = 'فعال ✓';
+                } else {
+                    document.getElementById('apiStatus').textContent = 'خطا ✗';
+                }
+            } catch (error) {
+                document.getElementById('apiStatus').textContent = 'آفلاین ✗';
+            }
+        }
+        
+        // Check on load
+        checkAPI();
+        
+        // Check every 30 seconds
+        setInterval(checkAPI, 30000);
+    </script>
+</body>
+</html>
