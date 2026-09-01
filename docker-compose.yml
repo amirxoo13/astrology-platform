@@ -23,7 +23,10 @@ services:
       # curl/wget are intentionally not present in the final API image
       # (multi-stage build strips build-time tools), so use Python's
       # standard library, which is always available, to hit /health.
-      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)"]
+      # urlopen() raises for non-2xx responses (e.g. the 503 the API returns
+      # when Swiss Ephemeris isn't ready), which already causes Python to
+      # exit non-zero, so a successful, uncaught call is sufficient here.
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -63,7 +66,7 @@ services:
     # root filesystem. NET_BIND_SERVICE is required (and re-added after
     # dropping ALL) so the still-root master process can bind to port 80;
     # writable paths nginx needs at runtime are provided as tmpfs mounts.
-    user: "101:101"
+    user: "nginx:nginx"
     read_only: true
     cap_drop:
       - ALL
