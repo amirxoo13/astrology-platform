@@ -117,7 +117,8 @@ else
 fi
 
 # Check bot
-if "${COMPOSE[@]}" ps telegram-bot | grep -q "Up"; then
+# Compose V1 prints "Up"; Compose V2 prints "running" (and may use "Up" in older builds).
+if "${COMPOSE[@]}" ps telegram-bot | grep -qE 'Up|running'; then
     echo -e "${GREEN}✅ بات تلگرام فعال است${NC}"
 else
     echo -e "${RED}❌ بات تلگرام مشکل دارد${NC}"

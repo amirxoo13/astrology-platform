@@ -1,3 +1,5 @@
+# Local development only for the vendored API. Production traffic goes
+# through the platform root docker-compose.yml (nginx on 8080; API not published).
 services:
   api:
     build: .
@@ -7,7 +9,8 @@ services:
       EPHE_PATH: /app/ephe
       HOST: 0.0.0.0
       PORT: 8000
-      CORS_ORIGINS: "*"
+      # Restrict browser origins for local use; do not use "*" in production.
+      CORS_ORIGINS: "http://localhost:8000,http://127.0.0.1:8000,http://localhost:8080,http://127.0.0.1:8080"
     volumes:
       - ./ephe:/app/ephe:ro
     restart: unless-stopped
