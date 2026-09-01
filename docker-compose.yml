@@ -10,8 +10,9 @@ services:
     restart: unless-stopped
     environment:
       - EPHE_PATH=/app/ephe
-    volumes:
-      - ./ephe:/app/ephe:ro
+    # No host bind-mount for /app/ephe: the ephemeris data files are
+    # downloaded and baked into the image at build time (see api/Dockerfile).
+    # Mounting an empty host directory here would silently shadow them.
     networks:
       - astrology-net
     # No ports published: the API is only reachable from other containers on
@@ -34,7 +35,7 @@ services:
 
   # Web Server for Charts
   web-server:
-    image: nginx:alpine
+    image: nginx:1.29-alpine
     container_name: astrology-web
     restart: unless-stopped
     ports:

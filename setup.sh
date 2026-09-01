@@ -46,21 +46,10 @@ fi
 
 # Create directories
 echo -e "${YELLOW}📁 ایجاد ساختار فایل‌ها...${NC}"
-mkdir -p ephe web
+mkdir -p web
 
-# Download ephemeris files if not exist
-if [ ! -f "ephe/sepl_18.se1" ]; then
-    echo -e "${YELLOW}📥 دانلود فایل‌های Ephemeris...${NC}"
-    cd ephe
-    curl --fail -L -O https://github.com/aloistr/swisseph/raw/master/ephe/sepl_18.se1
-    curl --fail -L -O https://github.com/aloistr/swisseph/raw/master/ephe/semo_18.se1
-    curl --fail -L -O https://github.com/aloistr/swisseph/raw/master/ephe/seas_18.se1
-    curl --fail -L -O https://github.com/aloistr/swisseph/raw/master/ephe/sefstars.txt
-    cd "$SCRIPT_DIR"
-    echo -e "${GREEN}✅ فایل‌های Ephemeris دانلود شد${NC}"
-else
-    echo -e "${GREEN}✅ فایل‌های Ephemeris موجود است${NC}"
-fi
+# Ephemeris data files are downloaded and baked into the API image at build
+# time (see api/Dockerfile), so no host-side download step is needed here.
 
 # Setup web files (they already live in this repository's own web/ directory,
 # right next to this script; verify they're present rather than copying from
@@ -103,7 +92,9 @@ sleep 10
 echo -e "${YELLOW}🔍 بررسی سلامت سرویس‌ها...${NC}"
 
 # Check API
-if curl -s http://localhost:8000/health | grep -q "ok"; then
+# The raw API port (8000) is not published; the API is only reachable
+# through the Nginx reverse proxy on 8080, so check the health endpoint there.
+if curl -s http://localhost:8080/api/health | grep -q "ok"; then
     echo -e "${GREEN}✅ Swiss Ephemeris API فعال است${NC}"
 else
     echo -e "${RED}❌ Swiss Ephemeris API مشکل دارد${NC}"

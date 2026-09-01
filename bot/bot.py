@@ -434,6 +434,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"❌ {e}")
                 return
 
+            # Geocoding runs in a separate thread and may take a while; guard
+            # against the user cancelling/restarting the flow while it was
+            # in flight, which would otherwise resurrect a stale session.
+            if user_states.get(user_id) is not state:
+                return
+
             state['data']['latitude'] = lat
             state['data']['longitude'] = lon
             state['data']['location_name'] = location_name
