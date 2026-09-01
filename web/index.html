@@ -108,7 +108,13 @@
             background: #ff0000;
             box-shadow: 0 0 10px #ff0000;
         }
-        
+
+        .status-unknown {
+            background: #888888;
+            box-shadow: 0 0 10px #888888;
+            animation: none;
+        }
+
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
@@ -172,14 +178,14 @@
                 <div id="apiStatus">در حال بررسی...</div>
             </div>
             <div class="status-card">
-                <span class="status-indicator status-online"></span>
+                <span class="status-indicator status-unknown"></span>
                 <strong>وب سرور</strong>
-                <div>فعال ✓</div>
+                <div>در حال ارائه این صفحه (بدون health-check جداگانه)</div>
             </div>
             <div class="status-card">
-                <span class="status-indicator status-online"></span>
+                <span class="status-indicator status-unknown"></span>
                 <strong>بات تلگرام</strong>
-                <div>فعال ✓</div>
+                <div>وضعیت پایش نمی‌شود</div>
             </div>
         </div>
         
@@ -228,11 +234,11 @@
             <h2>🌐 استفاده از API</h2>
             <p>برای توسعه‌دهندگان:</p>
             <div class="code-block">
-# چک کردن سلامت API
-curl http://localhost:8000/health
+# چک کردن سلامت API (از طریق Nginx، همان مسیری که این صفحه استفاده می‌کند)
+curl http://localhost:8080/api/health
 
-# ساخت چارت ناتال
-curl -X POST http://localhost:8000/api/v1/birth-chart \
+# ساخت چارت ناتال (از طریق Nginx)
+curl -X POST http://localhost:8080/api/v1/birth-chart \
   -H "Content-Type: application/json" \
   -d '{
     "datetime": "1879-03-14T11:30:00",
@@ -240,6 +246,9 @@ curl -X POST http://localhost:8000/api/v1/birth-chart \
     "latitude": 48.40,
     "longitude": 9.99
   }'
+
+# نکته: پورت 8000 (کانتینر API) به‌صورت مستقیم روی هاست منتشر نشده و فقط
+# از داخل شبکه Docker یا از طریق پروکسی Nginx (مسیرهای بالا) در دسترس است.
             </div>
         </div>
         
@@ -260,7 +269,7 @@ curl -X POST http://localhost:8000/api/v1/birth-chart \
         </div>
         
         <div style="text-align: center; margin-top: 40px;">
-            <a href="https://t.me/YourBotName" class="cta-button">🤖 شروع با بات تلگرام</a>
+            <a href="#" id="telegramBotLink" class="cta-button">🤖 شروع با بات تلگرام</a>
             <a href="/api/health" class="cta-button">🔌 تست API</a>
         </div>
         
@@ -271,10 +280,40 @@ curl -X POST http://localhost:8000/api/v1/birth-chart \
     </div>
     
     <script>
+        // Telegram bot username: this MUST be set before deploying, e.g. by
+        // running the site through a template/build step that substitutes an
+        // environment variable, or by editing this constant directly.
+        // Leaving it as the placeholder below disables the button instead of
+        // linking to a fake-looking real bot.
+        const TELEGRAM_BOT_USERNAME = 'YourBotName'; // e.g. 'my_astrology_bot'
+
+        function setupTelegramLink() {
+            const link = document.getElementById('telegramBotLink');
+            if (!TELEGRAM_BOT_USERNAME || TELEGRAM_BOT_USERNAME === 'YourBotName') {
+                link.href = '#';
+                link.title = 'نام کاربری بات تلگرام هنوز پیکربندی نشده است';
+                link.style.opacity = '0.5';
+                link.style.cursor = 'not-allowed';
+                link.addEventListener('click', (e) => e.preventDefault());
+            } else {
+                link.href = `https://t.me/${TELEGRAM_BOT_USERNAME}`;
+            }
+        }
+        setupTelegramLink();
+
         // Check API status
         async function checkAPI() {
             try {
                 const response = await fetch('/api/health');
+                const contentType = response.headers.get('content-type') || '';
+                if (!response.ok) {
+                    document.getElementById('apiStatus').textContent = `خطا ✗ (HTTP ${response.status})`;
+                    return;
+                }
+                if (!contentType.includes('application/json')) {
+                    document.getElementById('apiStatus').textContent = 'خطا ✗ (پاسخ غیرمنتظره)';
+                    return;
+                }
                 const data = await response.json();
                 if (data.status === 'ok') {
                     document.getElementById('apiStatus').textContent = 'فعال ✓';
@@ -282,7 +321,7 @@ curl -X POST http://localhost:8000/api/v1/birth-chart \
                     document.getElementById('apiStatus').textContent = 'خطا ✗';
                 }
             } catch (error) {
-                document.getElementById('apiStatus').textContent = 'آفلاین ✗';
+                document.getElementById('apiStatus').textContent = 'آفلاین ✗ (اتصال برقرار نشد)';
             }
         }
         

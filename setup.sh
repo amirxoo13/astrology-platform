@@ -29,17 +29,17 @@ fi
 if ! command -v docker &> /dev/null; then
     echo -e "${YELLOW}📦 نصب Docker...${NC}"
     apt update
-    apt install -y docker.io docker-compose
+    apt install -y docker.io docker-compose-plugin
     systemctl start docker
     systemctl enable docker
 else
     echo -e "${GREEN}✅ Docker نصب است${NC}"
 fi
 
-# Check Docker Compose
-if ! command -v docker-compose &> /dev/null; then
+# Check Docker Compose (v2 plugin, invoked as `docker compose`)
+if ! docker compose version &> /dev/null; then
     echo -e "${YELLOW}📦 نصب Docker Compose...${NC}"
-    apt install -y docker-compose
+    apt install -y docker-compose-plugin
 else
     echo -e "${GREEN}✅ Docker Compose نصب است${NC}"
 fi
@@ -89,8 +89,8 @@ fi
 
 # Build and start
 echo -e "${YELLOW}🚀 ساخت و اجرای containers...${NC}"
-docker-compose down 2>/dev/null || true
-if ! docker-compose up -d --build; then
+docker compose down 2>/dev/null || true
+if ! docker compose up -d --build; then
     echo -e "${RED}❌ راه‌اندازی containers ناموفق بود${NC}"
     exit 1
 fi
@@ -107,7 +107,7 @@ if curl -s http://localhost:8000/health | grep -q "ok"; then
     echo -e "${GREEN}✅ Swiss Ephemeris API فعال است${NC}"
 else
     echo -e "${RED}❌ Swiss Ephemeris API مشکل دارد${NC}"
-    docker-compose logs ephemeris-api
+    docker compose logs ephemeris-api
     HEALTH_OK=false
 fi
 
@@ -116,16 +116,16 @@ if curl -s http://localhost:8080 | grep -q "astrology"; then
     echo -e "${GREEN}✅ وب سرور فعال است${NC}"
 else
     echo -e "${RED}❌ وب سرور مشکل دارد${NC}"
-    docker-compose logs web-server
+    docker compose logs web-server
     HEALTH_OK=false
 fi
 
 # Check bot
-if docker-compose ps telegram-bot | grep -q "Up"; then
+if docker compose ps telegram-bot | grep -q "Up"; then
     echo -e "${GREEN}✅ بات تلگرام فعال است${NC}"
 else
     echo -e "${RED}❌ بات تلگرام مشکل دارد${NC}"
-    docker-compose logs telegram-bot
+    docker compose logs telegram-bot
     HEALTH_OK=false
 fi
 
@@ -139,9 +139,9 @@ if [ "$HEALTH_OK" = true ]; then
     echo -e "🤖 بات تلگرام: از طریق تلگرام تست کنید"
     echo ""
     echo -e "${YELLOW}دستورات مدیریت:${NC}"
-    echo "  sudo docker-compose logs -f    # مشاهده لاگ‌ها"
-    echo "  sudo docker-compose restart    # ریستارت"
-    echo "  sudo docker-compose down       # توقف"
+    echo "  sudo docker compose logs -f    # مشاهده لاگ‌ها"
+    echo "  sudo docker compose restart    # ریستارت"
+    echo "  sudo docker compose down       # توقف"
     echo ""
     echo -e "${GREEN}پورت 443 (3x UI) دست نخورده است ✓${NC}"
 else

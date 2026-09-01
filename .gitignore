@@ -4,3 +4,19 @@ __pycache__/
 .vscode/
 .idea/
 *.log
+
+# Python
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Docker
+docker-compose.override.yml
+docker-compose.override.yaml
+
+# Ephemeris data downloaded by setup.sh / api build (local, not source-controlled)
+/ephe/
