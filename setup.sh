@@ -36,31 +36,25 @@ else
     echo -e "${GREEN}✅ Docker نصب است${NC}"
 fi
 
-# Check Docker Compose
-if ! command -v docker-compose &> /dev/null; then
+# Prefer Docker Compose V2 plugin (`docker compose`) when available; fall back
+# to the legacy `docker-compose` binary for older hosts.
+if docker compose version >/dev/null 2>&1; then
+    COMPOSE=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE=(docker-compose)
+else
     echo -e "${YELLOW}📦 نصب Docker Compose...${NC}"
     apt install -y docker-compose
-else
-    echo -e "${GREEN}✅ Docker Compose نصب است${NC}"
+    COMPOSE=(docker-compose)
 fi
+echo -e "${GREEN}✅ Docker Compose: ${COMPOSE[*]}${NC}"
 
 # Create directories
 echo -e "${YELLOW}📁 ایجاد ساختار فایل‌ها...${NC}"
-mkdir -p ephe web
+mkdir -p web
 
-# Download ephemeris files if not exist
-if [ ! -f "ephe/sepl_18.se1" ]; then
-    echo -e "${YELLOW}📥 دانلود فایل‌های Ephemeris...${NC}"
-    cd ephe
-    curl --fail -L -O https://github.com/aloistr/swisseph/raw/master/ephe/sepl_18.se1
-    curl --fail -L -O https://github.com/aloistr/swisseph/raw/master/ephe/semo_18.se1
-    curl --fail -L -O https://github.com/aloistr/swisseph/raw/master/ephe/seas_18.se1
-    curl --fail -L -O https://github.com/aloistr/swisseph/raw/master/ephe/sefstars.txt
-    cd "$SCRIPT_DIR"
-    echo -e "${GREEN}✅ فایل‌های Ephemeris دانلود شد${NC}"
-else
-    echo -e "${GREEN}✅ فایل‌های Ephemeris موجود است${NC}"
-fi
+# Ephemeris data files are downloaded and baked into the API image at build
+# time (see api/Dockerfile), so no host-side download step is needed here.
 
 # Setup web files (they already live in this repository's own web/ directory,
 # right next to this script; verify they're present rather than copying from
@@ -89,8 +83,8 @@ fi
 
 # Build and start
 echo -e "${YELLOW}🚀 ساخت و اجرای containers...${NC}"
-docker-compose down 2>/dev/null || true
-if ! docker-compose up -d --build; then
+"${COMPOSE[@]}" down 2>/dev/null || true
+if ! "${COMPOSE[@]}" up -d --build; then
     echo -e "${RED}❌ راه‌اندازی containers ناموفق بود${NC}"
     exit 1
 fi
@@ -103,29 +97,31 @@ sleep 10
 echo -e "${YELLOW}🔍 بررسی سلامت سرویس‌ها...${NC}"
 
 # Check API
-if curl -s http://localhost:8000/health | grep -q "ok"; then
+# The raw API port (8000) is not published; the API is only reachable
+# through the Nginx reverse proxy on 8080, so check the health endpoint there.
+if curl -s http://localhost:8080/api/health | grep -q "ok"; then
     echo -e "${GREEN}✅ Swiss Ephemeris API فعال است${NC}"
 else
     echo -e "${RED}❌ Swiss Ephemeris API مشکل دارد${NC}"
-    docker-compose logs ephemeris-api
+    "${COMPOSE[@]}" logs ephemeris-api
     HEALTH_OK=false
 fi
 
-# Check web server
-if curl -s http://localhost:8080 | grep -q "astrology"; then
+# Check web server (match a stable marker from web/index.html)
+if curl -s http://localhost:8080 | grep -q "Swiss Ephemeris"; then
     echo -e "${GREEN}✅ وب سرور فعال است${NC}"
 else
     echo -e "${RED}❌ وب سرور مشکل دارد${NC}"
-    docker-compose logs web-server
+    "${COMPOSE[@]}" logs web-server
     HEALTH_OK=false
 fi
 
 # Check bot
-if docker-compose ps telegram-bot | grep -q "Up"; then
+if "${COMPOSE[@]}" ps telegram-bot | grep -q "Up"; then
     echo -e "${GREEN}✅ بات تلگرام فعال است${NC}"
 else
     echo -e "${RED}❌ بات تلگرام مشکل دارد${NC}"
-    docker-compose logs telegram-bot
+    "${COMPOSE[@]}" logs telegram-bot
     HEALTH_OK=false
 fi
 
@@ -139,9 +135,9 @@ if [ "$HEALTH_OK" = true ]; then
     echo -e "🤖 بات تلگرام: از طریق تلگرام تست کنید"
     echo ""
     echo -e "${YELLOW}دستورات مدیریت:${NC}"
-    echo "  sudo docker-compose logs -f    # مشاهده لاگ‌ها"
-    echo "  sudo docker-compose restart    # ریستارت"
-    echo "  sudo docker-compose down       # توقف"
+    echo "  sudo ${COMPOSE[*]} logs -f    # مشاهده لاگ‌ها"
+    echo "  sudo ${COMPOSE[*]} restart    # ریستارت"
+    echo "  sudo ${COMPOSE[*]} down       # توقف"
     echo ""
     echo -e "${GREEN}پورت 443 (3x UI) دست نخورده است ✓${NC}"
 else

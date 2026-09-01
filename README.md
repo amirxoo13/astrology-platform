@@ -12,8 +12,8 @@
 
 ## پورت‌های استفاده شده
 
-- **8000** - Swiss Ephemeris API
-- **8080** - وب سرور نمایش چارت‌ها
+- **8080** - وب سرور (Nginx)؛ نمایش چارت‌ها و پروکسی مسیر `/api/` به سمت API
+- **8000 (داخلی)** - Swiss Ephemeris API؛ فقط داخل شبکه Docker در دسترس است و به‌صورت عمومی publish نشده (باید از طریق پروکسی Nginx در `/api/` استفاده شود)
 - **پورت 443 دست نخورده** - 3x UI بدون تغییر
 
 ## نصب و راه‌اندازی
@@ -23,7 +23,7 @@
 ```bash
 # در سرور اجرا کنید:
 sudo apt update
-sudo apt install -y docker.io docker-compose git curl
+sudo apt install -y docker.io docker-compose-plugin git curl
 sudo systemctl start docker
 sudo systemctl enable docker
 ```
@@ -36,59 +36,66 @@ cd /opt
 sudo git clone https://github.com/amirxoo13/astrology-platform.git
 cd astrology-platform
 
-# 2. اجرای setup خودکار
+# 2. تنظیم توکن بات (الزامی برای بات تلگرام)
+cp .env.example .env
+# BOT_TOKEN را با توکن واقعی BotFather ویرایش کنید
+
+# 3. اجرای setup خودکار
 sudo bash setup.sh
 
-# 3. بررسی وضعیت
-sudo docker-compose ps
+# 4. بررسی وضعیت
+sudo docker compose ps
 ```
 
 ### دسترسی
 
-- **وب سرور**: http://155.103.71.163:8080
-- **API**: http://155.103.71.163:8000
-- **بات تلگرام**: @YourBotName (از طریق تلگرام)
+جایگزین `<YOUR_SERVER_IP>` را با آدرس IP یا دامنه سرور خودتان کنید:
+
+- **وب سرور**: `http://<YOUR_SERVER_IP>:8080`
+- **API** (از طریق پروکسی Nginx): `http://<YOUR_SERVER_IP>:8080/api/`
+- **بات تلگرام**: `@your_bot_username` (نام کاربری بات خودتان را در BotFather تنظیم کنید)
 
 ## دستورات مدیریت
 
 ```bash
 # مشاهده لاگ‌ها
-sudo docker-compose logs -f
+sudo docker compose logs -f
 
 # توقف سرویس‌ها
-sudo docker-compose down
+sudo docker compose down
 
 # ریستارت سرویس‌ها
-sudo docker-compose restart
+sudo docker compose restart
 
 # به‌روزرسانی
-sudo docker-compose down
-sudo docker-compose up -d --build
+sudo docker compose down
+sudo docker compose up -d --build
 ```
 
 ## امنیت
 
-- هیچ تداخلی با 3x UI (پورت 443)
-- شبکه Docker ایزوله
-- Environment variables برای secrets
-- Read-only volumes برای data
+- API مستقیماً روی هاست publish نشده و فقط از طریق شبکه Docker یا پروکسی Nginx در دسترس است؛ پورت 8080 وب‌سرور عمومی است و باید با فایروال/TLS سخت‌سازی شود.
+- Environment variables برای secrets (فایل `.env`، هرگز commit نشود)
+- فایل‌های ephemeris داخل image API bake می‌شوند (بدون bind-mount خالی که آن‌ها را سایه کند)
+- Container ها به‌صورت non-root اجرا می‌شوند
 
 ## عیب‌یابی
 
 ### بات تلگرام کار نمی‌کند
 ```bash
-sudo docker-compose logs telegram-bot
+sudo docker compose logs telegram-bot
 ```
 
 ### API پاسخ نمی‌دهد
 ```bash
-curl http://localhost:8000/health
-sudo docker-compose logs ephemeris-api
+# از طریق پروکسی Nginx (همان مسیری که صفحه وب و کاربران خارجی استفاده می‌کنند):
+curl http://localhost:8080/api/health
+sudo docker compose logs ephemeris-api
 ```
 
 ### وب سرور باز نمی‌شود
 ```bash
 sudo ufw status
 sudo ufw allow 8080/tcp
-sudo docker-compose logs web-server
+sudo docker compose logs web-server
 ```

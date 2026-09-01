@@ -1,7 +1,23 @@
 .env
-ephe/
 *.pyc
 __pycache__/
 .vscode/
 .idea/
 *.log
+
+# Python
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Docker
+docker-compose.override.yml
+docker-compose.override.yaml
+
+# Ephemeris data (baked into API image; any local copy is not source-controlled)
+ephe/
+/ephe/

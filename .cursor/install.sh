@@ -9,9 +9,8 @@
 #     Cloud Agent VM.
 #   * Configure the Docker daemon to use the fuse-overlayfs storage driver
 #     (the default overlay2 driver is unavailable in this nested environment).
-#   * Download the Swiss Ephemeris data files that docker-compose bind-mounts
-#     into the API container at ./ephe.
-#   * Build the docker-compose images so booting from the snapshot is fast.
+#   * Build the docker-compose images so booting from the snapshot is fast
+#     (Swiss Ephemeris data is baked into the API image by api/Dockerfile).
 #
 # The script is idempotent: re-running it skips work that is already done and
 # must always terminate (no long-running foreground processes live here).
@@ -62,20 +61,12 @@ printf '{\n  "storage-driver": "fuse-overlayfs"\n}\n' | sudo tee /etc/docker/dae
 # --- 3. Ensure the daemon is running so we can build images -------------------
 "${SCRIPT_DIR}/start-dockerd.sh"
 
-# --- 4. Swiss Ephemeris data files (bind-mounted into the API container) ------
-log "Ensuring Swiss Ephemeris data files exist in ./ephe ..."
-mkdir -p ephe
-# Fix ownership in case Docker previously auto-created ./ephe as root.
-sudo chown -R "$(id -u):$(id -g)" ephe
-EPHE_BASE="https://github.com/aloistr/swisseph/raw/master/ephe"
-for f in sepl_18.se1 semo_18.se1 seas_18.se1 sefstars.txt; do
-    if [ ! -s "ephe/${f}" ]; then
-        log "Downloading ephe/${f}"
-        curl --fail -sL -o "ephe/${f}" "${EPHE_BASE}/${f}"
-    fi
-done
+# --- 4. Build the compose images ---------------------------------------------
+# Ephemeris data files are downloaded inside api/Dockerfile at image build
+# time; docker-compose does not bind-mount a host ./ephe directory (that would
+# silently shadow the baked-in files if the host dir were empty).
 
-# --- 5. Build the compose images ---------------------------------------------
+
 log "Building docker-compose images..."
 sudo docker compose build
 log "Pre-pulling the nginx web image..."

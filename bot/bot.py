@@ -32,8 +32,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Configuration
-BOT_TOKEN = os.getenv('BOT_TOKEN', '***:***')
+# Configuration — BOT_TOKEN must come from the environment / .env (never hardcode).
+BOT_TOKEN = os.getenv('BOT_TOKEN')
 API_BASE_URL = os.getenv('API_BASE_URL', 'http://ephemeris-api:8000')
 
 # User state management
@@ -63,9 +63,30 @@ PLANET_SYMBOLS = {
     'Pallas': '●', 'Juno': '●', 'Vesta': '●'
 }
 
+# Ecliptic longitude of a body/house is exposed as `longitude` for planets and
+# as `cusp` for houses by the Swiss Ephemeris API.
+SIGN_ELEMENTS = {
+    'Aries': 'Fire', 'Leo': 'Fire', 'Sagittarius': 'Fire',
+    'Taurus': 'Earth', 'Virgo': 'Earth', 'Capricorn': 'Earth',
+    'Gemini': 'Air', 'Libra': 'Air', 'Aquarius': 'Air',
+    'Cancer': 'Water', 'Scorpio': 'Water', 'Pisces': 'Water',
+}
+
+
+def _ecliptic_longitude(pos):
+    """Return the ecliptic longitude of a chart point.
+
+    Planet entries expose it as ``longitude`` while house entries expose it as
+    ``cusp``; accept either so the same formatter works for both.
+    """
+    if 'longitude' in pos:
+        return pos['longitude']
+    return pos.get('cusp', 0.0)
+
+
 def format_position(pos):
-    """Format planet position to readable string"""
-    lon = pos['longitude']
+    """Format a planet/house position into a readable degree-in-sign string."""
+    lon = _ecliptic_longitude(pos)
     sign = pos['sign']
     degree = int(lon % 30)
     minute = int((lon % 1) * 60)
@@ -76,6 +97,36 @@ def format_position(pos):
     retro = " ℞" if pos.get('retrograde', False) else ""
     
     return f"{degree}°{minute:02d}'{second:02d}\" {sign_name}{retro}"
+
+
+def house_of(longitude, houses):
+    """Return the house number (1-12) a given ecliptic longitude falls in.
+
+    The pinned Swiss Ephemeris API returns planet positions without a house
+    assignment, so derive it from the house cusps. Boundary/wrap logic matches
+    ``app/utils/houses.py::house_for_longitude`` in swiss-ephemeris-api
+    (commit 8a03d63): ``lo < lon <= hi``, with wrap-around when the house
+    spans 0° Aries. Returns ``None`` when houses are unavailable.
+    """
+    if not houses:
+        return None
+    ordered = sorted(houses, key=lambda h: int(h.get('house', 0)))
+    cusps = [float(h.get('cusp', 0.0)) % 360.0 for h in ordered]
+    n = len(cusps)
+    if n < 2:
+        return None
+    lon = float(longitude) % 360.0
+    for i in range(n):
+        lo = cusps[i]
+        hi = cusps[(i + 1) % n]
+        if lo < hi:
+            in_house = lo < lon <= hi
+        else:
+            # Wrap-around: house spans 0° Aries
+            in_house = lon > lo or lon <= hi
+        if in_house:
+            return int(ordered[i].get('house', i + 1))
+    return None
 
 async def call_api(endpoint, data):
     """Call Swiss Ephemeris API asynchronously (non-blocking for the bot's event loop)"""
@@ -189,14 +240,16 @@ def generate_chart_text(chart_data, aspects_data, user_name):
         name = planet.get('name', '')
         symbol = PLANET_SYMBOLS.get(name, '•')
         pos = format_position(planet)
-        house_num = planet.get('house', '?')
-        text += f"{symbol} {name}: {pos} (خانه {house_num})\n"
+        house_num = house_of(planet.get('longitude', 0.0), houses)
+        house_label = f" (خانه {house_num})" if house_num else ""
+        text += f"{symbol} {name}: {pos}{house_label}\n"
     
     text += "\n🏠 *خانه‌های اصلی:*\n"
+    houses_by_num = {int(h.get('house', 0)): h for h in houses}
     angle_houses = [(1, 'ASC'), (4, 'IC'), (7, 'DSC'), (10, 'MC')]
     for num, name in angle_houses:
-        if num <= len(houses):
-            house = houses[num - 1]
+        house = houses_by_num.get(num)
+        if house is not None:
             pos = format_position(house)
             text += f"{name}: {pos}\n"
     
@@ -209,7 +262,7 @@ def generate_chart_text(chart_data, aspects_data, user_name):
     for aspect in aspects[:10]:  # Top 10 aspects
         p1 = aspect.get('planet1', '')
         p2 = aspect.get('planet2', '')
-        atype = aspect.get('aspect', '')
+        atype = aspect.get('aspect_name', aspect.get('aspect', ''))
         symbol = aspect_types.get(atype, '•')
         orb = aspect.get('orb', 0)
         orb_deg = int(orb)
@@ -222,7 +275,10 @@ def generate_chart_text(chart_data, aspects_data, user_name):
     element_counts = {'Fire': 0, 'Earth': 0, 'Air': 0, 'Water': 0}
     
     for planet in positions:
-        element = planet.get('element')
+        # Planets omit `element`; houses use uppercase FIRE/EARTH/AIR/WATER.
+        # Prefer an explicit element (normalized), else derive from the sign.
+        raw_element = planet.get('element') or SIGN_ELEMENTS.get(planet.get('sign'))
+        element = raw_element.title() if isinstance(raw_element, str) else raw_element
         if element in element_counts:
             element_counts[element] += 1
     
@@ -434,6 +490,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"❌ {e}")
                 return
 
+            # Geocoding runs in a separate thread and may take a while; guard
+            # against the user cancelling/restarting the flow while it was
+            # in flight, which would otherwise resurrect a stale session.
+            if user_states.get(user_id) is not state:
+                return
+
             state['data']['latitude'] = lat
             state['data']['longitude'] = lon
             state['data']['location_name'] = location_name
@@ -569,6 +631,13 @@ async def show_settings(query, context):
 
 def main():
     """Start the bot"""
+    if not BOT_TOKEN:
+        logger.error(
+            "BOT_TOKEN is not set. Provide it via the environment or .env "
+            "(see .env.example). Refusing to start without a real token."
+        )
+        raise SystemExit(1)
+
     application = Application.builder().token(BOT_TOKEN).build()
     
     # Add handlers

@@ -1,0 +1,42 @@
+# List of 30 major fixed stars with their swisseph names and common names.
+# Usage: pass `name` to swe.fixstar(), display `common` in responses.
+FIXED_STARS = [
+    ("Alphard",    "Alpha Hydrae"),
+    ("Alcyone",    "Eta Tauri (Pleiades)"),
+    ("Aldebaran",  "Alpha Tauri"),
+    ("Algol",      "Beta Persei"),
+    ("Alhena",     "Gamma Geminorum"),
+    ("Alpheratz",  "Alpha Andromedae"),
+    ("Altair",     "Alpha Aquilae"),
+    ("Antares",    "Alpha Scorpii"),
+    ("Arcturus",   "Alpha Bootis"),
+    ("Bellatrix",  "Gamma Orionis"),
+    ("Betelgeuse", "Alpha Orionis"),
+    ("Canopus",    "Alpha Carinae"),
+    ("Capella",    "Alpha Aurigae"),
+    ("Deneb",      "Alpha Cygni"),
+    ("Denebola",   "Beta Leonis"),
+    ("Dubhe",      "Alpha Ursae Majoris"),
+    ("Elnath",     "Beta Tauri"),
+    ("Fomalhaut",  "Alpha Piscis Austrini"),
+    ("Hamal",      "Gamma Arietis"),
+    ("Kaus Australis", "Epsilon Sagittarii"),
+    ("Markab",     "Alpha Pegasi"),
+    ("Menkar",     "Alpha Ceti"),
+    ("Miaplacidus","Beta Hydri"),
+    ("Mira",       "Omicron Ceti"),
+    ("Nunki",      "Sigma Sagittarii"),
+    ("Polaris",    "Alpha Ursae Minoris"),
+    ("Pollux",     "Beta Geminorum"),
+    ("Procyon",    "Alpha Canis Minoris"),
+    ("Regulus",    "Alpha Leonis"),
+    ("Rigel",      "Beta Orionis"),
+    ("Sadir",      "Gamma Cygni"),
+    ("Sirius",     "Alpha Canis Majoris"),
+    ("Spica",      "Alpha Virginis"),
+    ("Thuban",     "Alpha Draconis"),
+    ("Vega",       "Alpha Lyrae"),
+]
+
+FIXED_STAR_NAMES = [s[0] for s in FIXED_STARS]
+FIXED_STAR_COMMON = {s[0]: s[1] for s in FIXED_STARS}

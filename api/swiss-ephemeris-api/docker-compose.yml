@@ -1,0 +1,13 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      EPHE_PATH: /app/ephe
+      HOST: 0.0.0.0
+      PORT: 8000
+      CORS_ORIGINS: "*"
+    volumes:
+      - ./ephe:/app/ephe:ro
+    restart: unless-stopped

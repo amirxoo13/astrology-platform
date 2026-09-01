@@ -1,0 +1,93 @@
+---
+description: Technical design standards for swiss-ephemeris-api (FastAPI + pysweph, AGPL-3.0)
+alwaysApply: true
+---
+
+# Technical Design — swiss-ephemeris-api
+
+## Stack
+
+- Python 3.12+, FastAPI, Pydantic v2, pysweph (community fork: `import swisseph as swe`)
+- License: AGPL-3.0-or-later everywhere — source must always be public and match running code
+
+## Architecture
+
+```
+core/swisseph_core.py      → SwissEphemerisCore (stateless, pure swisseph calls)
+services/                   → SwissEphemerisCore for swisseph calls; business logic modules (zodiac, eclipses, lunar_phase, fixed_stars)
+schemas/                    → Pydantic v2 models (request/response)
+api/v1/endpoints/          → FastAPI route handlers (async def + asyncio.to_thread)
+deps.py                     → FastAPI dependency injection (singleton)
+```
+
+## SwissEphemerisCore Rules
+
+- All swisseph calls MUST go through `SwissEphemerisCore`
+- `swisseph` is a C extension (sync/blocking) — NEVER call it directly in `async def` handlers
+  → Use `asyncio.to_thread()` (Python 3.11+)
+- **ONE-TIME only**: Call `swe.set_ephe_path()` once at app startup (e.g., in `main.py` lifespan). It is process-global — never call it per-request
+- Never catch and suppress swisseph errors silently — raise descriptive FastAPI HTTPException
+
+## swisseph Flag Constants (pysweph 2.10.3.6)
+
+```
+swe.FLG_SWIEPH   =   2  # Swiss Ephemeris (NOT 256!)
+swe.FLG_SPEED    = 256  # include speed in result
+swe.FLG_SIDEREAL = 65536  # tropical/sidereal toggle (NOT 768!)
+swe.SIDBITS      = 256  # sidereal bit shift
+
+# Sidereal mode: use FLG_SIDEREAL + SIDM_* (e.g. swe.FLG_SIDEREAL + swe.SIDM_LAHIRI)
+# For tropical planets: swe.FLG_SWIEPH | swe.FLG_SPEED
+# For sidereal planets: swe.FLG_SIDEREAL + sidm_constant + swe.FLG_SPEED
+```
+
+## Wrapper Scope (Comprehensive)
+
+| Module | Coverage |
+|---|---|
+| Planets | Sun–Pluto, Chiron, Ceres, Pallas, Juno, Vesta, Earth |
+| Lunar | North Node (TRUE/MEAN), South Node (derived as North + 180°), Lilith/Black Moon (via nod_aps_ut, apogee at index 3) |
+| Special points | Part of Fortune (computed: ASC + Moon − Sun), Vertex, Anti-Vertex (derived: Vertex + 180°) |
+| Fixed stars | 35 fixed stars (requires sefstars.txt in ephe path) |
+| Houses | P(Placidus), K(Koch), W(Whole Sign), E(Equal), O(Porphyrius), R(Regiomontanus), C(Campanus), B(Alcabitius), M(Morinus) |
+| Sidereal | All swisseph SIDM_* ayanamsa constants |
+| Eclipses | Solar + Lunar (past and future) via swe.sol_eclipse_when_glob, swe.lun_eclipse_when |
+| Lunar phases | Illumination % via swe.pheno_ut |
+
+## API Design Rules
+
+- All endpoints at `/api/v1/` prefix
+- Input: `POST` with JSON body (Pydantic request model)
+- Output: Pydantic response model with typed fields — never return raw dict
+- Shared inputs go in `schemas/common.py` (`DateTimeInput`, `GeoLocation`)
+- Use `Enum` for constrained values (planet names, house systems, signs)
+- Response fields: `longitude`, `sign`, `degree_in_sign`, `speed`, `retrograde`, `house` (when applicable)
+- Time: accept ISO 8601 string + timezone name; convert to Julian Day UT internally
+
+## AGPL Compliance
+
+- Root endpoint (`GET /`) MUST return project info, AGPL notice, and GitHub source URL
+- Every public-facing response should include a `license` metadata field
+- README must state: "Source code must always be public and match code running on server"
+- No proprietary or NPML-licensed code may be added to this repository
+
+## Error Handling
+
+- Wrap all swisseph calls in try/except; raise `HTTPException(status_code=500, detail=...)`
+- Use `ErrorResponse` schema for consistent error format: `{error, detail, code}`
+- Never expose raw swisseph error codes to public API
+
+## Naming Conventions
+
+- `PlanetEnum` — uppercase enum members matching swe constants (e.g., `PlanetEnum.SUN = swe.SUN`)
+- `HouseSystemEnum` — char codes: `P`, `K`, `W`, `E`, `O`, `R`, `C`, `B`, `M`
+- All types: PascalCase (e.g., `PlanetPosition`, `HouseResponse`)
+- All functions/methods: snake_case (e.g., `calc_planet`, `get_lunar_phase`)
+- All environment variables: SCREAMING_SNAKE_CASE
+
+## Testing
+
+- Use `pytest` + `pytest-asyncio`
+- `conftest.py` provides fixtures for `SwissEphemerisCore` with temp ephe path
+- Mock `swisseph` module for unit tests (test business logic, not C library)
+- Integration tests call actual API endpoints with `TestClient`
