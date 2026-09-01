@@ -20,7 +20,10 @@ log() { printf '\033[1;33m[dockerd]\033[0m %s\n' "$*"; }
 # bridge running with the kernel default of 1).
 disable_bridge_netfilter() {
     sudo modprobe br_netfilter 2>/dev/null || true
-    if [ -w /proc/sys/net/bridge/bridge-nf-call-iptables ]; then
+    # Gate on existence, not on unprivileged writability: this /proc entry is
+    # root-writable only, so `[ -w ]` is false for the non-root agent user even
+    # though the `sudo sysctl` write below succeeds.
+    if [ -e /proc/sys/net/bridge/bridge-nf-call-iptables ]; then
         sudo sysctl -q -w net.bridge.bridge-nf-call-iptables=0 || true
         sudo sysctl -q -w net.bridge.bridge-nf-call-ip6tables=0 || true
     fi
