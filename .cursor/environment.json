@@ -12,7 +12,7 @@
   "ports": [
     {
       "name": "web",
-      "port": 8080
+      "port": 8090
     }
   ]
 }

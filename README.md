@@ -13,7 +13,7 @@
 ## پورت‌های استفاده شده
 
 - **8000** - Swiss Ephemeris API
-- **8080** - وب سرور نمایش چارت‌ها
+- **8090** - وب سرور نمایش چارت‌ها
 - **پورت 443 دست نخورده** - 3x UI بدون تغییر
 
 ## نصب و راه‌اندازی
@@ -45,7 +45,7 @@ sudo docker-compose ps
 
 ### دسترسی
 
-- **وب سرور**: http://155.103.71.163:8080
+- **وب سرور**: http://155.103.71.163:8090
 - **API**: http://155.103.71.163:8000
 - **بات تلگرام**: @YourBotName (از طریق تلگرام)
 
@@ -89,6 +89,6 @@ sudo docker-compose logs ephemeris-api
 ### وب سرور باز نمی‌شود
 ```bash
 sudo ufw status
-sudo ufw allow 8080/tcp
+sudo ufw allow 8090/tcp
 sudo docker-compose logs web-server
 ```

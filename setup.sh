@@ -79,8 +79,8 @@ if command -v ufw &> /dev/null; then
     # Only the Nginx web server port is exposed publicly. The raw ephemeris
     # API (port 8000) is intentionally NOT opened; it should only be reached
     # from other containers, or from the outside via the Nginx /api/ proxy.
-    ufw allow 8080/tcp
-    echo -e "${GREEN}✅ پورت 8080 باز شد${NC}"
+    ufw allow 8090/tcp
+    echo -e "${GREEN}✅ پورت 8090 باز شد${NC}"
     echo -e "${YELLOW}⚠️  توجه: پورت 8000 (API خام) عمداً باز نشد؛ از طریق Nginx در دسترس است${NC}"
     echo -e "${YELLOW}⚠️  توجه: پورت 443 دست نخورده (3x UI)${NC}"
 else
@@ -112,7 +112,7 @@ else
 fi
 
 # Check web server
-if curl -s http://localhost:8080 | grep -q "astrology"; then
+if curl -s http://localhost:8090 | grep -q "astrology"; then
     echo -e "${GREEN}✅ وب سرور فعال است${NC}"
 else
     echo -e "${RED}❌ وب سرور مشکل دارد${NC}"
@@ -135,7 +135,7 @@ if [ "$HEALTH_OK" = true ]; then
     echo -e "${GREEN}✅ نصب کامل شد!${NC}"
     echo -e "${GREEN}═══════════════════════════════════════════════${NC}"
     echo ""
-    echo -e "🌐 وب سرور: ${YELLOW}http://$(hostname -I | awk '{print $1}'):8080${NC}"
+    echo -e "🌐 وب سرور: ${YELLOW}http://$(hostname -I | awk '{print $1}'):8090${NC}"
     echo -e "🤖 بات تلگرام: از طریق تلگرام تست کنید"
     echo ""
     echo -e "${YELLOW}دستورات مدیریت:${NC}"

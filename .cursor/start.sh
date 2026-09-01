@@ -78,4 +78,4 @@ attach_bot_egress
 
 log "Services:"
 sudo docker compose ps
-log "Start phase complete. Web UI on port 8080, API proxied at /api/."
+log "Start phase complete. Web UI on port 8090, API proxied at /api/."
