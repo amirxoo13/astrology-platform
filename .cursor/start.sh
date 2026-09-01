@@ -51,6 +51,31 @@ done
 log "Starting docker-compose stack..."
 sudo docker compose up -d
 
+# --- 5. Give the telegram-bot outbound internet access -----------------------
+# In the nested Cloud Agent VM only the *default* docker bridge can reach the
+# public internet; custom compose bridges cannot egress. The telegram-bot is
+# the only service that needs outbound access (to api.telegram.org). Attach it
+# to the default bridge and make that bridge its default gateway (--gw-priority)
+# so it egresses via docker0 while still resolving `ephemeris-api` over
+# astrology-net. Idempotent: skips if already attached.
+attach_bot_egress() {
+    local cid
+    cid="$(sudo docker compose ps -q telegram-bot 2>/dev/null || true)"
+    if [ -z "${cid}" ]; then
+        log "telegram-bot container not found; skipping egress attach."
+        return 0
+    fi
+    if sudo docker inspect -f '{{json .NetworkSettings.Networks}}' "${cid}" 2>/dev/null | grep -q '"bridge"'; then
+        log "telegram-bot already attached to the default bridge."
+        return 0
+    fi
+    log "Attaching telegram-bot to the default bridge for outbound internet..."
+    sudo docker network connect --gw-priority 100 bridge "${cid}" 2>/dev/null || true
+    # Restart so the bot re-runs its Telegram connection now that it has egress.
+    sudo docker restart "${cid}" >/dev/null 2>&1 || true
+}
+attach_bot_egress
+
 log "Services:"
 sudo docker compose ps
 log "Start phase complete. Web UI on port 8080, API proxied at /api/."
