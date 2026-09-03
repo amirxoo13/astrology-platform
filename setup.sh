@@ -1,8 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-# Resolve the directory this script lives in, so all relative paths below
-# work regardless of the directory the script is invoked from.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
@@ -13,10 +11,8 @@ echo ""
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Tracks whether any health/verification step failed, so we never print a
-# false "installation complete" message after a real failure.
 HEALTH_OK=true
 
 # Check if running as root
@@ -29,103 +25,95 @@ fi
 if ! command -v docker &> /dev/null; then
     echo -e "${YELLOW}📦 نصب Docker...${NC}"
     apt update
-    apt install -y docker.io docker-compose
+    apt install -y docker.io
     systemctl start docker
     systemctl enable docker
 else
     echo -e "${GREEN}✅ Docker نصب است${NC}"
 fi
 
-# Check Docker Compose
-if ! command -v docker-compose &> /dev/null; then
-    echo -e "${YELLOW}📦 نصب Docker Compose...${NC}"
-    apt install -y docker-compose
+# Check Docker Compose v2
+if ! docker compose version &> /dev/null; then
+    echo -e "${YELLOW}📦 نصب Docker Compose v2...${NC}"
+    apt install -y docker-compose-v2
 else
-    echo -e "${GREEN}✅ Docker Compose نصب است${NC}"
+    echo -e "${GREEN}✅ Docker Compose v2 نصب است${NC}"
 fi
 
-# Create directories
-echo -e "${YELLOW}📁 ایجاد ساختار فایل‌ها...${NC}"
-mkdir -p ephe web
-
-# Download ephemeris files if not exist
-if [ ! -f "ephe/sepl_18.se1" ]; then
-    echo -e "${YELLOW}📥 دانلود فایل‌های Ephemeris...${NC}"
-    cd ephe
-    curl --fail -L -O https://github.com/aloistr/swisseph/raw/master/ephe/sepl_18.se1
-    curl --fail -L -O https://github.com/aloistr/swisseph/raw/master/ephe/semo_18.se1
-    curl --fail -L -O https://github.com/aloistr/swisseph/raw/master/ephe/seas_18.se1
-    curl --fail -L -O https://github.com/aloistr/swisseph/raw/master/ephe/sefstars.txt
-    cd "$SCRIPT_DIR"
-    echo -e "${GREEN}✅ فایل‌های Ephemeris دانلود شد${NC}"
-else
-    echo -e "${GREEN}✅ فایل‌های Ephemeris موجود است${NC}"
+# Validate .env
+if [ ! -f ".env" ]; then
+    echo -e "${RED}❌ فایل .env یافت نشد. لطفاً از .env.example کپی کنید${NC}"
+    exit 1
 fi
 
-# Setup web files (they already live in this repository's own web/ directory,
-# right next to this script; verify they're present rather than copying from
-# an unrelated path).
-echo -e "${YELLOW}🌐 تنظیم فایل‌های وب...${NC}"
-if [ -f "web/index.html" ]; then
-    echo -e "${GREEN}✅ فایل‌های وب موجود است${NC}"
-else
-    echo -e "${RED}❌ فایل‌های وب یافت نشدند (web/index.html)${NC}"
-    HEALTH_OK=false
+source .env || true
+
+if [ -z "${BOT_TOKEN:-}" ]; then
+    echo -e "${RED}❌ BOT_TOKEN در .env خالی است${NC}"
+    exit 1
+fi
+
+if [ -z "${GEONAMES_USER:-}" ]; then
+    echo -e "${YELLOW}⚠️  GEONAMES_USER در .env خالی است - geocoding ممکن است کار نکند${NC}"
 fi
 
 # Configure firewall
 echo -e "${YELLOW}🔥 تنظیم فایروال...${NC}"
 if command -v ufw &> /dev/null; then
-    # Only the Nginx web server port is exposed publicly. The raw ephemeris
-    # API (port 8000) is intentionally NOT opened; it should only be reached
-    # from other containers, or from the outside via the Nginx /api/ proxy.
     ufw allow 8080/tcp
     echo -e "${GREEN}✅ پورت 8080 باز شد${NC}"
-    echo -e "${YELLOW}⚠️  توجه: پورت 8000 (API خام) عمداً باز نشد؛ از طریق Nginx در دسترس است${NC}"
-    echo -e "${YELLOW}⚠️  توجه: پورت 443 دست نخورده (3x UI)${NC}"
 else
     echo -e "${YELLOW}⚠️  ufw نصب نیست، فایروال را دستی تنظیم کنید${NC}"
 fi
 
 # Build and start
 echo -e "${YELLOW}🚀 ساخت و اجرای containers...${NC}"
-docker-compose down 2>/dev/null || true
-if ! docker-compose up -d --build; then
+docker compose down 2>/dev/null || true
+if ! docker compose up -d --build; then
     echo -e "${RED}❌ راه‌اندازی containers ناموفق بود${NC}"
     exit 1
 fi
 
 # Wait for services
 echo -e "${YELLOW}⏳ انتظار برای راه‌اندازی سرویس‌ها...${NC}"
-sleep 10
+sleep 15
 
-# Health check
+# Health checks
 echo -e "${YELLOW}🔍 بررسی سلامت سرویس‌ها...${NC}"
 
-# Check API
-if curl -s http://localhost:8000/health | grep -q "ok"; then
-    echo -e "${GREEN}✅ Swiss Ephemeris API فعال است${NC}"
+# Check API via Nginx
+if curl -sf http://localhost:8080/api/health | grep -q "ok"; then
+    echo -e "${GREEN}✅ Swiss Ephemeris API فعال است (via /api/health)${NC}"
 else
     echo -e "${RED}❌ Swiss Ephemeris API مشکل دارد${NC}"
-    docker-compose logs ephemeris-api
+    docker compose logs ephemeris-api
+    HEALTH_OK=false
+fi
+
+# Check Redis
+if docker compose exec -T redis redis-cli ping | grep -q "PONG"; then
+    echo -e "${GREEN}✅ Redis فعال است${NC}"
+else
+    echo -e "${RED}❌ Redis مشکل دارد${NC}"
+    docker compose logs redis
     HEALTH_OK=false
 fi
 
 # Check web server
-if curl -s http://localhost:8080 | grep -q "astrology"; then
+if curl -sf http://localhost:8080 | grep -q "astrology"; then
     echo -e "${GREEN}✅ وب سرور فعال است${NC}"
 else
     echo -e "${RED}❌ وب سرور مشکل دارد${NC}"
-    docker-compose logs web-server
+    docker compose logs web-server
     HEALTH_OK=false
 fi
 
 # Check bot
-if docker-compose ps telegram-bot | grep -q "Up"; then
+if docker compose ps telegram-bot | grep -q "Up"; then
     echo -e "${GREEN}✅ بات تلگرام فعال است${NC}"
 else
     echo -e "${RED}❌ بات تلگرام مشکل دارد${NC}"
-    docker-compose logs telegram-bot
+    docker compose logs telegram-bot
     HEALTH_OK=false
 fi
 
@@ -135,15 +123,15 @@ if [ "$HEALTH_OK" = true ]; then
     echo -e "${GREEN}✅ نصب کامل شد!${NC}"
     echo -e "${GREEN}═══════════════════════════════════════════════${NC}"
     echo ""
-    echo -e "🌐 وب سرور: ${YELLOW}http://$(hostname -I | awk '{print $1}'):8080${NC}"
+    echo -e "🌐 وب API: ${YELLOW}http://$(hostname -I | awk '{print $1}'):8080/api/health${NC}"
     echo -e "🤖 بات تلگرام: از طریق تلگرام تست کنید"
     echo ""
     echo -e "${YELLOW}دستورات مدیریت:${NC}"
-    echo "  sudo docker-compose logs -f    # مشاهده لاگ‌ها"
-    echo "  sudo docker-compose restart    # ریستارت"
-    echo "  sudo docker-compose down       # توقف"
+    echo "  sudo docker compose logs -f    # مشاهده لاگ‌ها"
+    echo "  sudo docker compose restart    # ریستارت"
+    echo "  sudo docker compose down       # توقف"
     echo ""
-    echo -e "${GREEN}پورت 443 (3x UI) دست نخورده است ✓${NC}"
+    echo -e "🔒 برای فعال‌سازی HTTPS: ${YELLOW}sudo bash scripts/init-letsencrypt.sh yourdomain.com your@email.com${NC}"
 else
     echo -e "${RED}═══════════════════════════════════════════════${NC}"
     echo -e "${RED}❌ نصب با خطا مواجه شد؛ لطفاً لاگ‌های بالا را بررسی کنید.${NC}"

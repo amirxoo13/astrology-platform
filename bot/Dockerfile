@@ -2,17 +2,23 @@ FROM python:3.12.14-slim
 
 WORKDIR /app
 
-# Install dependencies (pinned in requirements.txt)
-COPY requirements.txt /app/requirements.txt
+# Install system dependencies for Cairo/SVG rendering
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libcairo2 \
+    fonts-dejavu-core \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy bot files
+COPY bot.py birthtime.py geocoding.py state.py astro.py chartwheel.py requirements.txt ./
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy bot code
-COPY bot.py /app/bot.py
-
-# Run as a non-root user
+# Run as non-root user
 RUN useradd --create-home --uid 1000 --shell /usr/sbin/nologin botuser \
     && chown -R botuser:botuser /app
 USER botuser
 
-# Run bot
+# Start bot
 CMD ["python", "bot.py"]

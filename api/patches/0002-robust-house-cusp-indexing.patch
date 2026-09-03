@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Amir <amir@astrology-platform.local>
+Date: Mon, 2 Sep 2026 00:00:00 +0000
+Subject: [PATCH 2/2] fix: detect raw_cusps length before indexing
+
+Swiss Ephemeris swe.houses() can return 12 or 13 cusps depending on context.
+Check length before indexing to prevent IndexError.
+
+---
+ app/services/ephemeris.py | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/app/services/ephemeris.py b/app/services/ephemeris.py
+index abcdefg..xyz9876 100644
+--- a/app/services/ephemeris.py
++++ b/app/services/ephemeris.py
+@@ -95,10 +95,12 @@ def calculate_houses(jd, lat, lon, hsys='P'):
+     """Calculate house cusps"""
+     houses = []
+     cusps, ascmc = swe.houses(jd, lat, lon, hsys.encode())
++    
++    # cusps can be length 12 or 13; Swiss Ephemeris convention is index 0 unused, 1-12 are houses
++    max_house = min(12, len(cusps) - 1) if len(cusps) > 1 else 0
+     
+     for i in range(1, 13):
+-        if i < len(cusps):
+-            houses.append({
++        if i <= max_house:
++            house_data = {
+                 'house': i,
+                 'cusp_longitude': cusps[i],
+                 'sign': get_sign_name(cusps[i]),
+-- 
+2.39.0
