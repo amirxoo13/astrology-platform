@@ -15,9 +15,16 @@
 
 ## پورت‌های استفاده شده
 
-- **8080** - وب سرور (HTTP)
-- **8443** - وب سرور (HTTPS اختیاری، بعد از اجرای scripts/init-letsencrypt.sh)
+- **8080** - وب سرور (HTTP) در docker-compose.yml پیش‌فرض
+- **8090** - وب سرور روی سرورهایی که پورت 443 از قبل توسط برنامه دیگری اشغال شده (`docker-compose.prod.yml`)
+- **8443** - وب سرور (HTTPS اختیاری، بعد از اجرای scripts/init-letsencrypt.sh) — روی سرورهایی که 443 آزاد است
 - **پورت‌های داخلی** - ephemeris-api:8000 و redis:6379 فقط در شبکه astrology-net
+
+اگر روی سرور برنامه دیگری پورت **443** را گرفته، به آن دست نزنید. این استک نباید 443 را bind کند. از `docker-compose.prod.yml` استفاده کنید تا فقط 8090 منتشر شود و certbot اجرا نشود:
+
+```bash
+sudo docker compose -f docker-compose.prod.yml up -d --build
+```
 
 ## آزمون سریع با آلبرت انیشتین
 
@@ -164,6 +171,8 @@ sudo docker compose logs redis
 ```bash
 sudo ufw status
 sudo ufw allow 8080/tcp
+# اگر از docker-compose.prod.yml استفاده می‌کنید:
+sudo ufw allow 8090/tcp
 sudo docker compose logs web-server
 ```
 
