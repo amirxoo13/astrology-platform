@@ -1,29 +1,23 @@
-#!/usr/bin/env python3
 """
-Astrology Telegram Bot - Production Version
-Professional natal chart generator with Swiss Ephemeris
+Multi-mode Astrology Telegram Bot
+Modes: natal, transit, synastry, composite, solar_return, progressed
 """
 import asyncio
 import logging
 import os
+from datetime import datetime
 
 import httpx
-from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from telegram.error import TelegramError
 
-try:
-    from timezonefinder import TimezoneFinder
-except ImportError:  # pragma: no cover - optional dependency guard
-    TimezoneFinder = None
-
-try:
-    from geopy.geocoders import Nominatim
-    from geopy.exc import GeopyError
-except ImportError:  # pragma: no cover - optional dependency guard
-    Nominatim = None
-    GeopyError = Exception
+# Local imports
+import state
+import geocoding
+import birthtime
+import astro
+import chartwheel
 
 # Setup logging
 logging.basicConfig(
@@ -32,21 +26,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Configuration
-BOT_TOKEN = os.getenv('BOT_TOKEN', '***:***')
+# Configuration - NO default BOT_TOKEN
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN environment variable is required")
+
 API_BASE_URL = os.getenv('API_BASE_URL', 'http://ephemeris-api:8000')
-
-# User state management
-user_states = {}
-
-# Restart-flow guidance shown whenever we can't trust the in-memory state
-RESTART_MESSAGE = (
-    "⚠️ اطلاعات جلسه شما یافت نشد یا منقضی شده است.\n"
-    "لطفاً دوباره با /start شروع کنید."
-)
-
-_timezone_finder = TimezoneFinder() if TimezoneFinder else None
-_geolocator = Nominatim(user_agent="astrology-platform-bot") if Nominatim else None
 
 # Zodiac signs in Persian with symbols
 SIGN_NAMES = {
@@ -59,26 +44,12 @@ SIGN_NAMES = {
 PLANET_SYMBOLS = {
     'Sun': '☉', 'Moon': '☽', 'Mercury': '☿', 'Venus': '♀',
     'Mars': '♂', 'Jupiter': '♃', 'Saturn': '♄', 'Uranus': '♅',
-    'Neptune': '♆', 'Pluto': '♇', 'Chiron': '⚷', 'Ceres': '●',
-    'Pallas': '●', 'Juno': '●', 'Vesta': '●'
+    'Neptune': '♆', 'Pluto': '♇'
 }
 
-def format_position(pos):
-    """Format planet position to readable string"""
-    lon = pos['longitude']
-    sign = pos['sign']
-    degree = int(lon % 30)
-    minute = int((lon % 1) * 60)
-    second = int(((lon % 1) * 60 % 1) * 60)
-    sign_name = SIGN_NAMES.get(sign, sign)
-    
-    # Retrograde indicator
-    retro = " ℞" if pos.get('retrograde', False) else ""
-    
-    return f"{degree}°{minute:02d}'{second:02d}\" {sign_name}{retro}"
 
 async def call_api(endpoint, data):
-    """Call Swiss Ephemeris API asynchronously (non-blocking for the bot's event loop)"""
+    """Call Swiss Ephemeris API asynchronously"""
     url = f"{API_BASE_URL}{endpoint}"
     logger.info(f"Calling API: {url}")
     try:
@@ -87,7 +58,7 @@ async def call_api(endpoint, data):
             response.raise_for_status()
             return response.json()
     except httpx.HTTPStatusError as e:
-        logger.error(f"API returned an error status for {url}: {e}")
+        logger.error(f"API returned error for {url}: {e}")
     except httpx.RequestError as e:
         logger.error(f"API call to {url} failed: {e}")
     except ValueError as e:
@@ -95,157 +66,98 @@ async def call_api(endpoint, data):
     return None
 
 
-class LocationError(ValueError):
-    """Raised when the user-provided location/coordinates cannot be resolved."""
+def format_position(pos):
+    """Format planet position to readable string"""
+    lon = pos['longitude']
+    sign = pos.get('sign', '')
+    degree = int(lon % 30)
+    minute = int((lon % 1) * 60)
+    second = int(((lon % 1) * 60 % 1) * 60)
+    sign_name = SIGN_NAMES.get(sign, sign)
+    
+    retro = " ℞" if pos.get('retrograde', False) else ""
+    return f"{degree}°{minute:02d}'{second:02d}\" {sign_name}{retro}"
 
 
-def looks_like_coordinates(text):
-    """Heuristic to decide whether input should be parsed as 'lat,lon'.
-
-    Treats the input as coordinates only if it contains at least one digit
-    and no letters (of any script), so city names like "Tehran, Iran" or
-    "تهران" are routed to geocoding while numeric-only input (including
-    malformed cases like "1,2,3") is routed to coordinate parsing/validation.
-    """
-    stripped = text.strip()
-    if not stripped:
-        return False
-    has_letter = any(ch.isalpha() for ch in stripped)
-    has_digit = any(ch.isdigit() for ch in stripped)
-    return has_digit and not has_letter
-
-
-def parse_coordinates(text):
-    """Parse a 'lat,lon' string into validated floats.
-
-    Raises LocationError on malformed input (wrong number of components,
-    non-numeric values, or out-of-range latitude/longitude).
-    """
-    parts = [p.strip() for p in text.split(',')]
-    if len(parts) != 2:
-        raise LocationError(
-            "فرمت مختصات اشتباه است. لطفاً به شکل lat,lon وارد کنید (مثال: 35.69,51.39)"
-        )
-
-    try:
-        lat = float(parts[0])
-        lon = float(parts[1])
-    except ValueError:
-        raise LocationError(
-            "مختصات باید عدد باشند. لطفاً به شکل lat,lon وارد کنید (مثال: 35.69,51.39)"
-        )
-
-    if not (-90 <= lat <= 90):
-        raise LocationError("عرض جغرافیایی (latitude) باید بین 90- و 90 باشد.")
-    if not (-180 <= lon <= 180):
-        raise LocationError("طول جغرافیایی (longitude) باید بین 180- و 180 باشد.")
-
-    return lat, lon
-
-
-def geocode_city(name):
-    """Resolve a city/place name to (latitude, longitude) using Nominatim.
-
-    Returns None if geocoding is unavailable or the place cannot be found.
-    This is a blocking network call and must be run in a thread when called
-    from async code.
-    """
-    if _geolocator is None:
-        logger.error("Geocoding is unavailable: geopy is not installed")
-        return None
-    try:
-        location = _geolocator.geocode(name, timeout=10)
-    except GeopyError as e:
-        logger.error(f"Geocoding failed for '{name}': {e}")
-        return None
-    if location is None:
-        return None
-    return location.latitude, location.longitude
-
-
-def resolve_timezone(lat, lon):
-    """Resolve the IANA timezone name for the given coordinates, defaulting to UTC."""
-    if _timezone_finder is None:
-        logger.error("Timezone lookup unavailable: timezonefinder is not installed")
-        return 'UTC'
-    try:
-        tz_name = _timezone_finder.timezone_at(lat=lat, lng=lon)
-    except Exception as e:
-        logger.error(f"Timezone lookup failed for ({lat}, {lon}): {e}")
-        return 'UTC'
-    return tz_name or 'UTC'
-
-def generate_chart_text(chart_data, aspects_data, user_name):
+def generate_chart_text(chart_data, aspects_data, user_name, mode='natal'):
     """Generate professional text summary of chart"""
     positions = chart_data.get('positions', [])
     houses = chart_data.get('houses', [])
     aspects = aspects_data.get('aspects', [])
     
-    text = f"🌟 *چارت ناتال {user_name}* 🌟\n\n"
+    mode_title = {
+        'natal': 'ناتال',
+        'transit': 'ترانزیت',
+        'synastry': 'سیناستری',
+        'composite': 'کامپوزیت',
+        'solar_return': 'سولار ریترن',
+        'progressed': 'پروگرس'
+    }.get(mode, 'چارت')
+    
+    text = f"🌟 *چارت {mode_title} {user_name}* 🌟\n\n"
     
     # Planets section
-    text += "🪐 *سیارات:*\n"
-    for planet in positions[:10]:  # Top 10 planets
+    text += "🪐 *سیارات اصلی:*\n"
+    for planet in positions[:10]:  # 10 classical planets
         name = planet.get('name', '')
+        if name not in astro.MAIN_PLANETS:
+            continue
         symbol = PLANET_SYMBOLS.get(name, '•')
         pos = format_position(planet)
         house_num = planet.get('house', '?')
         text += f"{symbol} {name}: {pos} (خانه {house_num})\n"
     
-    text += "\n🏠 *خانه‌های اصلی:*\n"
-    angle_houses = [(1, 'ASC'), (4, 'IC'), (7, 'DSC'), (10, 'MC')]
-    for num, name in angle_houses:
-        if num <= len(houses):
-            house = houses[num - 1]
-            pos = format_position(house)
-            text += f"{name}: {pos}\n"
+    # Houses section
+    if houses:
+        text += "\n🏠 *خانه‌های اصلی:*\n"
+        angle_houses = [(1, 'ASC'), (4, 'IC'), (7, 'DSC'), (10, 'MC')]
+        for num, name in angle_houses:
+            if num <= len(houses):
+                house = houses[num - 1]
+                pos = format_position(house)
+                text += f"{name}: {pos}\n"
     
     # Aspects section
-    text += "\n✨ *جنبه‌های کلیدی:*\n"
-    aspect_types = {
-        'CONJUNCTION': '☌', 'OPPOSITION': '☍', 'TRINE': '△',
-        'SQUARE': '□', 'SEXTILE': '⚹'
-    }
-    for aspect in aspects[:10]:  # Top 10 aspects
-        p1 = aspect.get('planet1', '')
-        p2 = aspect.get('planet2', '')
-        atype = aspect.get('aspect', '')
-        symbol = aspect_types.get(atype, '•')
-        orb = aspect.get('orb', 0)
-        orb_deg = int(orb)
-        orb_min = int((orb % 1) * 60)
-        text += f"{p1} {symbol} {p2} ({orb_deg}°{orb_min:02d}')\n"
-    
-    # Element distribution
-    text += "\n🔥 *توزیع عناصر:*\n"
-    elements = {'Fire': '🔥 آتش', 'Earth': '🌍 زمین', 'Air': '💨 هوا', 'Water': '💧 آب'}
-    element_counts = {'Fire': 0, 'Earth': 0, 'Air': 0, 'Water': 0}
-    
-    for planet in positions:
-        element = planet.get('element')
-        if element in element_counts:
-            element_counts[element] += 1
-    
-    total = sum(element_counts.values())
-    for elem, count in element_counts.items():
-        percentage = (count / total * 100) if total > 0 else 0
-        text += f"{elements.get(elem, elem)}: {count} ({percentage:.1f}%)\n"
+    if aspects:
+        text += "\n✨ *جنبه‌های کلیدی:*\n"
+        aspect_types = {
+            'CONJUNCTION': '☌', 'OPPOSITION': '☍', 'TRINE': '△',
+            'SQUARE': '□', 'SEXTILE': '⚹'
+        }
+        for aspect in aspects[:10]:  # Top 10 aspects
+            p1 = aspect.get('planet1', '')
+            p2 = aspect.get('planet2', '')
+            atype = aspect.get('aspect', '')
+            symbol = aspect_types.get(atype, '•')
+            orb = aspect.get('orb', 0)
+            orb_deg = int(orb)
+            orb_min = int((orb % 1) * 60)
+            text += f"{p1} {symbol} {p2} ({orb_deg}°{orb_min:02d}')\n"
     
     return text
+
 
 def welcome_text(user_first_name):
     return (
         f"سلام {user_first_name}! 👋\n\n"
         "به بات استرولوژی حرفه‌ای خوش آمدید 🌟\n\n"
-        "این بات با استفاده از Swiss Ephemeris دقیق‌ترین محاسبات نجومی را ارائه می‌دهد.\n\n"
+        "این بات از Swiss Ephemeris استفاده می‌کند و چندین حالت دارد:\n"
+        "• چارت ناتال 🎯\n"
+        "• ترانزیت و پروگرس 🔄\n"
+        "• سیناستری و کامپوزیت 💑\n"
+        "• سولار ریترن ☀️\n\n"
         "چه کاری می‌خواهید انجام دهید؟"
     )
 
 
 def welcome_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🌟 ساخت چارت ناتال", callback_data="create_chart")],
-        [InlineKeyboardButton("📚 راهنما", callback_data="help")],
+        [InlineKeyboardButton("🎯 چارت ناتال", callback_data="mode_natal")],
+        [InlineKeyboardButton("🔄 ترانزیت", callback_data="mode_transit")],
+        [InlineKeyboardButton("💑 سیناستری", callback_data="mode_synastry")],
+        [InlineKeyboardButton("🌐 کامپوزیت", callback_data="mode_composite")],
+        [InlineKeyboardButton("☀️ سولار ریترن", callback_data="mode_solar_return")],
+        [InlineKeyboardButton("📈 پروگرس", callback_data="mode_progressed")],
         [InlineKeyboardButton("⚙️ تنظیمات", callback_data="settings")]
     ])
 
@@ -261,6 +173,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except TelegramError as e:
         logger.error(f"Failed to send welcome message: {e}")
 
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle button callbacks"""
     query = update.callback_query
@@ -270,98 +183,130 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Failed to acknowledge callback query: {e}")
 
     user_id = query.from_user.id
+    data = query.data
 
     try:
-        if query.data == "create_chart":
-            await create_chart_flow(query, context)
-        elif query.data == "help":
-            await show_help(query, context)
-        elif query.data == "settings":
+        if data.startswith("mode_"):
+            mode = data.replace("mode_", "")
+            await start_chart_flow(query, context, mode)
+        elif data == "settings":
             await show_settings(query, context)
-        elif query.data == "confirm_create":
+        elif data == "confirm_create":
             await generate_and_send_chart(query, context)
-        elif query.data == "cancel":
-            user_states.pop(user_id, None)
+        elif data == "cancel":
+            state.delete_state(user_id)
             await query.edit_message_text("❌ عملیات لغو شد.\n\nبرای شروع مجدد /start را بزنید.")
-        elif query.data == "start":
-            user_states.pop(user_id, None)
+        elif data == "start":
+            state.delete_state(user_id)
             await query.edit_message_text(
                 welcome_text(query.from_user.first_name),
                 reply_markup=welcome_keyboard()
             )
-        elif query.data == "set_house_placidus":
-            await query.edit_message_text(
-                "✅ سیستم خانه Placidus انتخاب شد (تنها گزینه فعلی).",
-                reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="settings")]]
-                )
-            )
-        elif query.data == "set_zodiac_tropical":
-            await query.edit_message_text(
-                "✅ زودیاک Tropical انتخاب شد (تنها گزینه فعلی).",
-                reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="settings")]]
-                )
-            )
-        elif query.data == "time_unknown":
-            state = user_states.get(user_id)
-            if state is None or 'data' not in state:
-                await query.edit_message_text(RESTART_MESSAGE)
-                return
-            state['data']['time'] = "12:00"
-            state['step'] = 'city'
-
-            await query.edit_message_text(
-                "⏰ زمان: 12:00 (پیش‌فرض)\n\n"
-                "📍 نام شهر یا مختصات جغرافیایی را وارد کنید:\n"
-                "(مثال: Tehran, Iran یا 35.69,51.39)"
-            )
+        elif data.startswith("pick_location_"):
+            await handle_location_pick(query, context)
+        elif data == "time_unknown":
+            await handle_time_unknown(query, context)
     except TelegramError as e:
-        logger.error(f"Telegram API error while handling '{query.data}': {e}")
+        logger.error(f"Telegram API error while handling '{data}': {e}")
 
-async def create_chart_flow(query, context):
-    """Start chart creation flow"""
+
+async def start_chart_flow(query, context, mode):
+    """Start chart creation flow with selected mode"""
     user_id = query.from_user.id
     
-    # Initialize user state
-    user_states[user_id] = {
-        'step': 'name',
-        'data': {}
+    s = state.init_state(user_id)
+    s['mode'] = mode
+    s['step'] = 'name'
+    state.set_state(user_id, s)
+    
+    mode_names = {
+        'natal': 'ناتال',
+        'transit': 'ترانزیت',
+        'synastry': 'سیناستری',
+        'composite': 'کامپوزیت',
+        'solar_return': 'سولار ریترن',
+        'progressed': 'پروگرس'
     }
     
-    keyboard = [[InlineKeyboardButton("❌ لغو", callback_data="cancel")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
     await query.edit_message_text(
-        "🌟 ساخت چارت ناتال\n\n"
+        f"🌟 ساخت چارت {mode_names.get(mode, mode)}\n\n"
         "لطفاً نام شخص را وارد کنید:\n"
         "(مثال: آلبرت انیشتین)",
-        reply_markup=reply_markup
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ لغو", callback_data="cancel")]])
     )
+
+
+async def handle_location_pick(query, context):
+    """Handle location disambiguation pick"""
+    user_id = query.from_user.id
+    s = state.get_state(user_id)
+    
+    if not s or 'location_results' not in s:
+        await query.edit_message_text(state.RESTART_MESSAGE)
+        return
+    
+    # Extract index from callback data
+    idx = int(query.data.replace("pick_location_", ""))
+    results = s['location_results']
+    
+    if idx >= len(results):
+        await query.edit_message_text("❌ انتخاب نامعتبر")
+        return
+    
+    loc = results[idx]
+    s['data']['latitude'] = loc['lat']
+    s['data']['longitude'] = loc['lon']
+    s['data']['location_name'] = f"{loc['name']}, {loc['country']}"
+    s['data']['timezone'] = geocoding.resolve_timezone(loc['lat'], loc['lon'])
+    s['step'] = 'confirm'
+    del s['location_results']
+    state.set_state(user_id, s)
+    
+    await show_confirmation(query, s['data'])
+
+
+async def handle_time_unknown(query, context):
+    """Handle unknown birth time"""
+    user_id = query.from_user.id
+    s = state.get_state(user_id)
+    
+    if not s or 'data' not in s:
+        await query.edit_message_text(state.RESTART_MESSAGE)
+        return
+    
+    s['data']['time'] = "12:00"
+    s['step'] = 'city'
+    state.set_state(user_id, s)
+    
+    await query.edit_message_text(
+        "⏰ زمان: 12:00 (پیش‌فرض)\n\n"
+        "📍 نام شهر یا مختصات جغرافیایی را وارد کنید:\n"
+        "(مثال: Tehran, Iran یا 35.69,51.39)"
+    )
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle text messages based on user state"""
     user_id = update.effective_user.id
     text = update.message.text
     
-    if user_id not in user_states:
-        await update.message.reply_text(
-            "برای ساخت چارت، لطفاً /start را بزنید."
-        )
+    s = state.get_state(user_id)
+    if not s:
+        await update.message.reply_text("برای ساخت چارت، لطفاً /start را بزنید.")
         return
     
-    state = user_states[user_id]
-    if 'data' not in state:
-        user_states.pop(user_id, None)
-        await update.message.reply_text(RESTART_MESSAGE)
+    if 'data' not in s:
+        state.delete_state(user_id)
+        await update.message.reply_text(state.RESTART_MESSAGE)
         return
 
-    step = state.get('step')
-
+    step = s.get('step')
+    
     try:
         if step == 'name':
-            state['data']['name'] = text
-            state['step'] = 'date'
+            s['data']['name'] = text
+            s['step'] = 'date'
+            state.set_state(user_id, s)
             
             await update.message.reply_text(
                 f"✅ نام: {text}\n\n"
@@ -372,121 +317,146 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         elif step == 'date':
             try:
-                datetime.strptime(text, '%Y-%m-%d')
-                state['data']['date'] = text
-                state['step'] = 'time'
+                validated = birthtime.validate_date(text)
+                s['data']['date'] = validated
+                s['step'] = 'time'
+                state.set_state(user_id, s)
                 
-                keyboard = [
-                    [InlineKeyboardButton("⏰ زمان دقیق نمی‌دانم", callback_data="time_unknown")]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
+                keyboard = [[InlineKeyboardButton("⏰ زمان دقیق نمی‌دانم", callback_data="time_unknown")]]
                 await update.message.reply_text(
                     f"✅ تاریخ: {text}\n\n"
                     "⏰ ساعت تولد را وارد کنید:\n"
                     "فرمت: HH:MM (24 ساعته)\n"
                     "(مثال: 11:30)",
-                    reply_markup=reply_markup
+                    reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            except ValueError:
-                await update.message.reply_text(
-                    "❌ فرمت تاریخ اشتباه است.\n"
-                    "لطفاً از فرمت YYYY-MM-DD استفاده کنید.\n"
-                    "مثال: 1879-03-14"
-                )
+            except birthtime.BirthTimeError as e:
+                await update.message.reply_text(str(e))
         
         elif step == 'time':
             try:
-                datetime.strptime(text, '%H:%M')
-                state['data']['time'] = text
-                state['step'] = 'city'
+                validated = birthtime.validate_time(text)
+                s['data']['time'] = validated
+                s['step'] = 'city'
+                state.set_state(user_id, s)
                 
                 await update.message.reply_text(
                     f"✅ زمان: {text}\n\n"
                     "📍 نام شهر یا مختصات جغرافیایی را وارد کنید:\n"
                     "(مثال: Tehran, Iran یا 35.69,51.39)"
                 )
-            except ValueError:
-                await update.message.reply_text(
-                    "❌ فرمت زمان اشتباه است.\n"
-                    "لطفاً از فرمت HH:MM استفاده کنید.\n"
-                    "مثال: 11:30"
-                )
+            except birthtime.BirthTimeError as e:
+                await update.message.reply_text(str(e))
         
         elif step == 'city':
             text_stripped = text.strip()
 
             try:
-                if looks_like_coordinates(text_stripped):
-                    lat, lon = parse_coordinates(text_stripped)
-                    location_name = f"{lat}, {lon}"
+                if geocoding.looks_like_coordinates(text_stripped):
+                    lat, lon = geocoding.parse_coordinates(text_stripped)
+                    s['data']['latitude'] = lat
+                    s['data']['longitude'] = lon
+                    s['data']['location_name'] = f"{lat}, {lon}"
+                    s['data']['timezone'] = geocoding.resolve_timezone(lat, lon)
+                    s['step'] = 'confirm'
+                    state.set_state(user_id, s)
+                    
+                    await show_confirmation(update.message, s['data'])
                 else:
-                    coords = await asyncio.to_thread(geocode_city, text_stripped)
-                    if coords is None:
+                    # Geocode with disambiguation
+                    results = await asyncio.to_thread(geocoding.geocode_city, text_stripped)
+                    
+                    if not results:
                         await update.message.reply_text(
                             "❌ نام شهر یافت نشد.\n"
                             "لطفاً نام شهر معتبر (مثال: Tehran, Iran) یا مختصات دقیق (lat,lon) وارد کنید."
                         )
                         return
-                    lat, lon = coords
-                    location_name = text_stripped
-            except LocationError as e:
+                    
+                    if len(results) == 1:
+                        # Single result, use it
+                        loc = results[0]
+                        s['data']['latitude'] = loc['lat']
+                        s['data']['longitude'] = loc['lon']
+                        s['data']['location_name'] = f"{loc['name']}, {loc['country']}"
+                        s['data']['timezone'] = geocoding.resolve_timezone(loc['lat'], loc['lon'])
+                        s['step'] = 'confirm'
+                        state.set_state(user_id, s)
+                        
+                        await show_confirmation(update.message, s['data'])
+                    else:
+                        # Multiple results, ask user to pick
+                        s['location_results'] = results
+                        state.set_state(user_id, s)
+                        
+                        keyboard = []
+                        for i, loc in enumerate(results[:5]):  # Limit to 5
+                            label = f"{loc['name']}, {loc.get('admin1', '')}, {loc['country']}"
+                            keyboard.append([InlineKeyboardButton(label, callback_data=f"pick_location_{i}")])
+                        
+                        await update.message.reply_text(
+                            "📍 چندین مکان یافت شد. لطفاً یکی را انتخاب کنید:",
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        
+            except geocoding.LocationError as e:
                 await update.message.reply_text(f"❌ {e}")
-                return
-
-            state['data']['latitude'] = lat
-            state['data']['longitude'] = lon
-            state['data']['location_name'] = location_name
-            state['data']['timezone'] = resolve_timezone(lat, lon)
-
-            state['step'] = 'confirm'
-            
-            # Show confirmation
-            data = state['data']
-            keyboard = [
-                [
-                    InlineKeyboardButton("✅ تایید و ساخت چارت", callback_data="confirm_create"),
-                    InlineKeyboardButton("❌ لغو", callback_data="cancel")
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await update.message.reply_text(
-                "📋 اطلاعات چارت:\n\n"
-                f"👤 نام: {data.get('name', 'N/A')}\n"
-                f"📅 تاریخ: {data.get('date', 'N/A')}\n"
-                f"⏰ زمان: {data.get('time', 'Unknown')}\n"
-                f"📍 مکان: {data.get('location_name', 'N/A')}\n"
-                f"🕒 منطقه زمانی: {data.get('timezone', 'UTC')}\n\n"
-                "آیا این اطلاعات درست است؟",
-                reply_markup=reply_markup
-            )
+                
     except TelegramError as e:
         logger.error(f"Telegram API error while handling step '{step}': {e}")
+
+
+async def show_confirmation(message_or_query, data):
+    """Show confirmation screen"""
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ تایید و ساخت چارت", callback_data="confirm_create"),
+            InlineKeyboardButton("❌ لغو", callback_data="cancel")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    text = (
+        "📋 اطلاعات چارت:\n\n"
+        f"👤 نام: {data.get('name', 'N/A')}\n"
+        f"📅 تاریخ: {data.get('date', 'N/A')}\n"
+        f"⏰ زمان: {data.get('time', 'Unknown')}\n"
+        f"📍 مکان: {data.get('location_name', 'N/A')}\n"
+        f"🕒 منطقه زمانی: {data.get('timezone', 'UTC')}\n\n"
+        "آیا این اطلاعات درست است؟"
+    )
+    
+    if hasattr(message_or_query, 'edit_message_text'):
+        await message_or_query.edit_message_text(text, reply_markup=reply_markup)
+    else:
+        await message_or_query.reply_text(text, reply_markup=reply_markup)
+
 
 async def generate_and_send_chart(query, context):
     """Generate chart and send to user"""
     user_id = query.from_user.id
-    state = user_states.get(user_id)
-    data = state.get('data') if state else None
+    s = state.get_state(user_id)
+    data = s.get('data') if s else None
 
     if not data or 'date' not in data or 'time' not in data:
-        try:
-            await query.edit_message_text(RESTART_MESSAGE)
-        except TelegramError as e:
-            logger.error(f"Failed to notify user about missing session state: {e}")
-        user_states.pop(user_id, None)
+        await query.edit_message_text(state.RESTART_MESSAGE)
+        state.delete_state(user_id)
         return
 
-    try:
-        await query.edit_message_text("⏳ در حال محاسبه چارت...")
-    except TelegramError as e:
-        logger.error(f"Failed to update progress message: {e}")
+    await query.edit_message_text("⏳ در حال محاسبه چارت...")
+
+    # Resolve birth datetime with LMT support
+    birth_info = birthtime.resolve_birth_utc(
+        data['date'],
+        data['time'],
+        data.get('timezone', 'UTC'),
+        data.get('longitude', 0)
+    )
 
     # Prepare API request
     birth_data = {
-        'datetime': f"{data['date']}T{data['time']}:00",
-        'timezone': data.get('timezone', 'UTC'),
+        'datetime': birth_info['datetime'],
+        'timezone': birth_info['timezone'],
         'latitude': data.get('latitude', 35.69),
         'longitude': data.get('longitude', 51.39)
     }
@@ -496,64 +466,49 @@ async def generate_and_send_chart(query, context):
     aspects_data = await call_api('/api/v1/aspects', birth_data)
     
     if not chart_data or not aspects_data:
-        try:
-            await query.edit_message_text(
-                "❌ خطا در محاسبه چارت.\n"
-                "لطفاً بعداً دوباره تلاش کنید."
-            )
-        except TelegramError as e:
-            logger.error(f"Failed to notify user about chart calculation error: {e}")
-        user_states.pop(user_id, None)
+        await query.edit_message_text(
+            "❌ خطا در محاسبه چارت.\n"
+            "لطفاً بعداً دوباره تلاش کنید."
+        )
+        state.delete_state(user_id)
         return
     
     # Generate text summary
-    try:
-        chart_text = generate_chart_text(chart_data, aspects_data, data.get('name', 'شخص'))
-    except (KeyError, TypeError, ValueError) as e:
-        logger.error(f"Failed to parse ephemeris API response: {e}")
-        try:
-            await query.edit_message_text(
-                "❌ پاسخ سرویس محاسبات نامعتبر بود.\n"
-                "لطفاً بعداً دوباره تلاش کنید."
-            )
-        except TelegramError as te:
-            logger.error(f"Failed to notify user about response parsing error: {te}")
-        user_states.pop(user_id, None)
-        return
-
-    # Send chart
-    try:
-        await query.edit_message_text(chart_text, parse_mode='Markdown')
-    except TelegramError as e:
-        logger.error(f"Failed to send chart result: {e}")
+    mode = s.get('mode', 'natal')
+    chart_text = generate_chart_text(chart_data, aspects_data, data.get('name', 'شخص'), mode)
+    
+    # Send text
+    await query.edit_message_text(chart_text, parse_mode='Markdown')
+    
+    # Generate and send chart wheel
+    positions = chart_data.get('positions', [])
+    houses = chart_data.get('houses', [])
+    aspects = aspects_data.get('aspects', [])
+    
+    if positions and houses:
+        asc = houses[0] if houses else {'cusp_longitude': 0}
+        asc_lon = asc.get('cusp_longitude', 0)
+        
+        png_bytes = chartwheel.generate_chart_wheel_png(positions, houses, aspects, asc_lon)
+        if png_bytes:
+            try:
+                await context.bot.send_photo(
+                    chat_id=query.message.chat_id,
+                    photo=png_bytes,
+                    caption=f"🎯 Chart Wheel - {data.get('name', 'Chart')}"
+                )
+            except TelegramError as e:
+                logger.error(f"Failed to send chart wheel: {e}")
     
     # Clean up
-    user_states.pop(user_id, None)
+    state.delete_state(user_id)
 
-async def show_help(query, context):
-    """Show help message"""
-    await query.edit_message_text(
-        "📚 راهنمای استفاده\n\n"
-        "این بات به شما کمک می‌کند چارت ناتال حرفه‌ای بسازید.\n\n"
-        "🌟 ویژگی‌ها:\n"
-        "• محاسبات دقیق با Swiss Ephemeris\n"
-        "• 15 سیاره و سیارک\n"
-        "• 12 خانه (Placidus و 14 سیستم دیگر)\n"
-        "• تحلیل جنبه‌ها\n"
-        "• توزیع عناصر\n"
-        "• سیارات حاکم\n\n"
-        "📝 برای شروع، /start را بزنید.\n\n"
-        "💡 نکات:\n"
-        "• تاریخ را به فرمت YYYY-MM-DD وارد کنید\n"
-        "• زمان را به فرمت HH:MM وارد کنید\n"
-        "• می‌توانید نام شهر یا مختصات (lat,lon) را وارد کنید"
-    )
 
 async def show_settings(query, context):
     """Show settings menu"""
     keyboard = [
-        [InlineKeyboardButton("🏠 سیستم خانه: Placidus", callback_data="set_house_placidus")],
-        [InlineKeyboardButton("🌍 زودیاک: Tropical", callback_data="set_zodiac_tropical")],
+        [InlineKeyboardButton("🏠 سیستم خانه: Placidus (فقط)", callback_data="settings_noop")],
+        [InlineKeyboardButton("🌍 زودیاک: Tropical (فقط)", callback_data="settings_noop")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="start")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -563,9 +518,10 @@ async def show_settings(query, context):
         "تنظیمات فعلی:\n"
         "• سیستم خانه: Placidus\n"
         "• زودیاک: Tropical\n\n"
-        "برای تغییر، روی گزینه‌ها کلیک کنید:",
+        "(در حال حاضر فقط Placidus و Tropical پشتیبانی می‌شوند)",
         reply_markup=reply_markup
     )
+
 
 def main():
     """Start the bot"""
@@ -577,8 +533,9 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     # Start polling
-    logger.info("🚀 Starting Astrology Bot...")
+    logger.info("🚀 Starting Multi-Mode Astrology Bot...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
+
 
 if __name__ == '__main__':
     main()

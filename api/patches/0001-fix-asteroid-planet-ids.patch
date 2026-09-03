@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Amir <amir@astrology-platform.local>
+Date: Mon, 2 Sep 2026 00:00:00 +0000
+Subject: [PATCH 1/2] fix: use getattr for asteroid constants
+
+Use getattr(swe, 'CHIRON') etc instead of hardcoded IDs to ensure
+correct Swiss Ephemeris constant resolution for Ceres, Pallas, Juno, Vesta.
+
+---
+ app/services/ephemeris.py | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/app/services/ephemeris.py b/app/services/ephemeris.py
+index 1234567..abcdefg 100644
+--- a/app/services/ephemeris.py
++++ b/app/services/ephemeris.py
+@@ -15,11 +15,11 @@ PLANETS = {
+     'Uranus': swe.URANUS,
+     'Neptune': swe.NEPTUNE,
+     'Pluto': swe.PLUTO,
+-    'Chiron': 15,
+-    'Ceres': 1,
+-    'Pallas': 2,
+-    'Juno': 3,
+-    'Vesta': 4,
++    'Chiron': getattr(swe, 'CHIRON', 15),
++    'Ceres': getattr(swe, 'CERES', 17),
++    'Pallas': getattr(swe, 'PALLAS', 18),
++    'Juno': getattr(swe, 'JUNO', 19),
++    'Vesta': getattr(swe, 'VESTA', 20),
+     'North Node': swe.MEAN_NODE,
+     'South Node': swe.TRUE_NODE,
+ }
+-- 
+2.39.0

@@ -8,15 +8,23 @@ services:
       dockerfile: Dockerfile
     container_name: astrology-api
     restart: unless-stopped
-    environment:
-      - EPHE_PATH=/app/ephe
-    volumes:
-      - ./ephe:/app/ephe:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     networks:
       - astrology-net
-    # No ports published: the API is only reachable from other containers on
-    # astrology-net (e.g. telegram-bot, nginx). External access must go
-    # through the Nginx reverse proxy (web-server) at /api/.
+
+  # Redis session cache
+  redis:
+    image: redis:7-alpine
+    container_name: astrology-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    networks:
+      - astrology-net
 
   # Telegram Bot
   telegram-bot:
@@ -28,24 +36,39 @@ services:
     env_file:
       - .env
     depends_on:
-      - ephemeris-api
+      ephemeris-api:
+        condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       - astrology-net
 
-  # Web Server for Charts
+  # Web Server (Nginx reverse proxy)
   web-server:
     image: nginx:alpine
     container_name: astrology-web
     restart: unless-stopped
     ports:
       - "8080:80"
+      - "8443:443"
     volumes:
       - ./web:/usr/share/nginx/html:ro
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
     depends_on:
       - ephemeris-api
     networks:
       - astrology-net
+
+  # Certbot for Let's Encrypt renewal
+  certbot:
+    image: certbot/certbot:latest
+    container_name: astrology-certbot
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
 
 networks:
   astrology-net:
