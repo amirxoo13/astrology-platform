@@ -1,0 +1,58 @@
+# Production compose for hosts that already bind TCP/UDP 443.
+# Do not publish host 443 or 8443. Certbot is omitted on purpose.
+#
+# Usage (on the server, from the repo root):
+#   docker compose -f docker-compose.prod.yml up -d --build
+services:
+  ephemeris-api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: astrology-api
+    restart: unless-stopped
+    environment:
+      - EPHE_PATH=/app/ephe
+    networks:
+      - astrology-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: astrology-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    networks:
+      - astrology-net
+
+  telegram-bot:
+    build:
+      context: ./bot
+      dockerfile: Dockerfile
+    container_name: astrology-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      ephemeris-api:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - astrology-net
+
+  web-server:
+    image: nginx:alpine
+    container_name: astrology-web
+    restart: unless-stopped
+    ports:
+      - "8090:80"
+    volumes:
+      - ./web:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - ephemeris-api
+    networks:
+      - astrology-net
+
+networks:
+  astrology-net:
+    driver: bridge
