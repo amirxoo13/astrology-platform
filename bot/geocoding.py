@@ -1,24 +1,16 @@
 """
-Geocoding utilities with GeoNames and Nominatim support.
-timezonefinder stays in bot for offline timezone resolution.
+Geocoding utilities with Nominatim (default) and optional GeoNames.
+
+Nominatim (OpenStreetMap) needs no API key. GeoNames requires GEONAMES_USER.
+If GeoNames is selected but unconfigured or empty, Nominatim is used.
 """
+import json
 import logging
 import os
+from urllib.error import URLError
+from urllib.parse import urlencode
+from urllib.request import urlopen
 
-logger = logging.getLogger(__name__)
-
-# Configuration
-GEOCODER = os.getenv('GEOCODER', 'geonames')  # 'geonames' or 'nominatim'
-GEONAMES_USER = os.getenv('GEONAMES_USER', '')
-
-# Try GeoNames
-try:
-    import requests
-    GEONAMES_AVAILABLE = True
-except ImportError:
-    GEONAMES_AVAILABLE = False
-
-# Try Nominatim
 try:
     from geopy.geocoders import Nominatim
     from geopy.exc import GeopyError
@@ -28,15 +20,16 @@ except ImportError:
     GeopyError = Exception
     NOMINATIM_AVAILABLE = False
 
-# Try timezonefinder
 try:
     from timezonefinder import TimezoneFinder
     _timezone_finder = TimezoneFinder()
 except ImportError:
     _timezone_finder = None
 
-# Initialize geocoders
 _nominatim = Nominatim(user_agent="astrology-platform-bot") if NOMINATIM_AVAILABLE else None
+
+logger = logging.getLogger(__name__)
+GEONAMES_USER = os.getenv("GEONAMES_USER", "")
 
 
 class LocationError(ValueError):
@@ -55,7 +48,7 @@ def looks_like_coordinates(text):
 
 def parse_coordinates(text):
     """Parse a 'lat,lon' string into validated floats."""
-    parts = [p.strip() for p in text.split(',')]
+    parts = [p.strip() for p in text.split(",")]
     if len(parts) != 2:
         raise LocationError(
             "فرمت مختصات اشتباه است. لطفاً به شکل lat,lon وارد کنید (مثال: 35.69,51.39)"
@@ -78,95 +71,104 @@ def parse_coordinates(text):
 
 
 def geocode_geonames(name, max_results=5):
-    """
-    Resolve city/place name using GeoNames API.
-    Returns list of (name, lat, lon, country) tuples for disambiguation.
-    """
-    if not GEONAMES_AVAILABLE:
-        logger.error("GeoNames unavailable: requests not installed")
-        return []
-    
+    """Resolve a place name with the GeoNames searchJSON API."""
     if not GEONAMES_USER:
         logger.error("GeoNames username not configured")
         return []
-    
+
     try:
-        url = "http://api.geonames.org/searchJSON"
-        params = {
-            'q': name,
-            'maxRows': max_results,
-            'username': GEONAMES_USER,
-            'featureClass': 'P',  # Populated places
-            'orderby': 'relevance'
-        }
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        
+        params = urlencode(
+            {
+                "q": name,
+                "maxRows": max_results,
+                "username": GEONAMES_USER,
+                "featureClass": "P",
+                "orderby": "relevance",
+            }
+        )
+        url = f"http://api.geonames.org/searchJSON?{params}"
+        with urlopen(url, timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8"))
+
         results = []
-        for place in data.get('geonames', []):
-            results.append({
-                'name': place.get('name', ''),
-                'country': place.get('countryName', ''),
-                'admin1': place.get('adminName1', ''),
-                'lat': float(place.get('lat', 0)),
-                'lon': float(place.get('lng', 0)),
-                'population': place.get('population', 0)
-            })
-        
+        for place in data.get("geonames", []):
+            results.append(
+                {
+                    "name": place.get("name", ""),
+                    "country": place.get("countryName", ""),
+                    "admin1": place.get("adminName1", ""),
+                    "lat": float(place.get("lat", 0)),
+                    "lon": float(place.get("lng", 0)),
+                    "population": place.get("population", 0),
+                }
+            )
         return results
-        
-    except Exception as e:
-        logger.error(f"GeoNames search failed for '{name}': {e}")
+    except (URLError, TimeoutError, ValueError, json.JSONDecodeError) as e:
+        logger.error("GeoNames search failed for '%s': %s", name, e)
         return []
 
 
 def geocode_nominatim(name):
-    """
-    Resolve city/place name using Nominatim.
-    Returns single (lat, lon) or None.
-    """
+    """Resolve a place name with Nominatim. Returns a one-item list or []."""
     if not NOMINATIM_AVAILABLE or _nominatim is None:
-        logger.error("Nominatim unavailable: geopy not installed")
-        return None
-    
+        logger.error("Nominatim unavailable: geopy is not installed")
+        return []
+
     try:
-        location = _nominatim.geocode(name, timeout=10)
+        location = _nominatim.geocode(name, timeout=10, addressdetails=True)
     except GeopyError as e:
-        logger.error(f"Nominatim geocoding failed for '{name}': {e}")
-        return None
-    
+        logger.error("Nominatim geocoding failed for '%s': %s", name, e)
+        return []
+
     if location is None:
-        return None
-    
-    return location.latitude, location.longitude
+        return []
+
+    address = location.raw.get("address", {}) if isinstance(location.raw, dict) else {}
+    return [
+        {
+            "name": location.address.split(",")[0] if location.address else name,
+            "country": address.get("country", ""),
+            "admin1": address.get("state", address.get("county", "")),
+            "lat": location.latitude,
+            "lon": location.longitude,
+            "population": 0,
+        }
+    ]
+
+
+def _preferred_geocoder():
+    configured = os.getenv("GEOCODER", "nominatim").strip().lower()
+    if configured == "geonames" and GEONAMES_USER:
+        return "geonames"
+    return "nominatim"
 
 
 def geocode_city(name):
     """
-    Main geocoding function.
-    Returns list of results for GeoNames, or single result for Nominatim.
+    Main geocoding function. Always returns a list of result dicts.
+
+    GeoNames is only used when GEOCODER=geonames and GEONAMES_USER is set.
+    Otherwise Nominatim is used. An empty GeoNames result falls back to Nominatim.
     """
-    if GEOCODER == 'geonames':
-        return geocode_geonames(name)
-    else:
-        result = geocode_nominatim(name)
-        if result:
-            lat, lon = result
-            return [{'name': name, 'country': '', 'admin1': '', 'lat': lat, 'lon': lon, 'population': 0}]
-        return []
+    if _preferred_geocoder() == "geonames":
+        results = geocode_geonames(name)
+        if results:
+            return results
+        logger.warning("GeoNames returned no results for '%s'; trying Nominatim", name)
+
+    return geocode_nominatim(name)
 
 
 def resolve_timezone(lat, lon):
-    """Resolve the IANA timezone name for the given coordinates, defaulting to UTC."""
+    """IANA timezone for coordinates, or UTC if lookup is unavailable."""
     if _timezone_finder is None:
         logger.error("Timezone lookup unavailable: timezonefinder is not installed")
-        return 'UTC'
-    
+        return "UTC"
+
     try:
         tz_name = _timezone_finder.timezone_at(lat=lat, lng=lon)
     except Exception as e:
-        logger.error(f"Timezone lookup failed for ({lat}, {lon}): {e}")
-        return 'UTC'
-    
-    return tz_name or 'UTC'
+        logger.error("Timezone lookup failed for (%s, %s): %s", lat, lon, e)
+        return "UTC"
+
+    return tz_name or "UTC"

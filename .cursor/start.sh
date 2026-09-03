@@ -29,12 +29,26 @@ if [ -n "${BOT_TOKEN:-}" ]; then
     log "Writing .env from injected BOT_TOKEN secret."
     BOT_TOKEN_VALUE="${BOT_TOKEN}"
 else
-    log "BOT_TOKEN not set; writing placeholder (telegram-bot will not authenticate)."
+    log "BOT_TOKEN not set; writing placeholder (telegram-bot will idle without authenticating)."
     BOT_TOKEN_VALUE="PLACEHOLDER_NO_TOKEN"
 fi
+GEOCODER_VALUE="${GEOCODER:-nominatim}"
+GEONAMES_VALUE="${GEONAMES_USER:-}"
+if [ -n "${GEONAMES_VALUE}" ] && [ -z "${GEOCODER:-}" ]; then
+    GEOCODER_VALUE="geonames"
+fi
 umask 077
-printf 'BOT_TOKEN=%s\nAPI_BASE_URL=http://ephemeris-api:8000\n' "${BOT_TOKEN_VALUE}" > .env
+{
+    printf 'BOT_TOKEN=%s\n' "${BOT_TOKEN_VALUE}"
+    printf 'API_BASE_URL=http://ephemeris-api:8000\n'
+    printf 'REDIS_URL=redis://redis:6379/0\n'
+    printf 'SESSION_TTL_SECONDS=1800\n'
+    printf 'GEOCODER=%s\n' "${GEOCODER_VALUE}"
+    printf 'GEONAMES_USER=%s\n' "${GEONAMES_VALUE}"
+} > .env
 umask 022
+
+mkdir -p certbot/conf certbot/www
 
 # --- 3. Swiss Ephemeris data guard -------------------------------------------
 mkdir -p ephe

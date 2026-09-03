@@ -54,7 +54,7 @@ if [ -z "${BOT_TOKEN:-}" ]; then
 fi
 
 if [ -z "${GEONAMES_USER:-}" ]; then
-    echo -e "${YELLOW}⚠️  GEONAMES_USER در .env خالی است - geocoding ممکن است کار نکند${NC}"
+    echo -e "${YELLOW}⚠️  GEONAMES_USER خالی است — geocoding از Nominatim استفاده می‌کند${NC}"
 fi
 
 # Configure firewall
@@ -100,7 +100,7 @@ else
 fi
 
 # Check web server
-if curl -sf http://localhost:8080 | grep -q "astrology"; then
+if curl -sf http://localhost:8080 | grep -qiE 'astrology|استرولوژی|Ephemeris'; then
     echo -e "${GREEN}✅ وب سرور فعال است${NC}"
 else
     echo -e "${RED}❌ وب سرور مشکل دارد${NC}"
