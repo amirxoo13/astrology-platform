@@ -1,10 +1,24 @@
 """
-Birth time validation, parsing, and LMT (Local Mean Time) handling.
+Birth time validation, parsing, and Local Mean Time (LMT) handling.
+
+The Swiss Ephemeris API only accepts IANA timezone names (see
+app/utils/datetime_utils.py). Passing timezone="LMT" returns HTTP 422.
+
+LMT offset is the standard geographic formula used before civil time zones:
+
+    UTC offset (hours) = longitude_east / 15
+
+When the caller asks for LMT, this module converts the civil clock time to
+UTC and returns timezone="UTC" so the API can parse it.
 """
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Civil time zones were adopted country-by-country ~1880–1920. Astrology
+# software uses birth-place LMT for dates before 1900 (see project skill).
+LMT_YEAR_THRESHOLD = 1900
 
 
 class BirthTimeError(ValueError):
@@ -18,7 +32,7 @@ def validate_date(date_str):
     Raises BirthTimeError if invalid.
     """
     try:
-        datetime.strptime(date_str, '%Y-%m-%d')
+        datetime.strptime(date_str, "%Y-%m-%d")
         return date_str
     except ValueError:
         raise BirthTimeError(
@@ -35,7 +49,7 @@ def validate_time(time_str):
     Raises BirthTimeError if invalid.
     """
     try:
-        datetime.strptime(time_str, '%H:%M')
+        datetime.strptime(time_str, "%H:%M")
         return time_str
     except ValueError:
         raise BirthTimeError(
@@ -46,58 +60,62 @@ def validate_time(time_str):
 
 
 def format_datetime_for_api(date_str, time_str):
-    """
-    Format date and time for API consumption.
-    Returns ISO datetime string: YYYY-MM-DDTHH:MM:00
-    """
+    """ISO datetime string: YYYY-MM-DDTHH:MM:00"""
     return f"{date_str}T{time_str}:00"
 
 
 def calculate_lmt_offset(longitude):
-    """
-    Calculate Local Mean Time offset from longitude.
-    LMT offset = longitude / 15 degrees per hour.
-    Returns offset in hours (float).
-    """
-    return longitude / 15.0
+    """Local Mean Time offset from Greenwich, in hours (longitude / 15)."""
+    return float(longitude) / 15.0
+
+
+def should_use_lmt(date_str, timezone_name=None):
+    """True when birth-place LMT should be used instead of an IANA zone."""
+    if timezone_name and str(timezone_name).upper() == "LMT":
+        return True
+    try:
+        year = datetime.strptime(date_str, "%Y-%m-%d").year
+    except ValueError:
+        return False
+    return year < LMT_YEAR_THRESHOLD
 
 
 def resolve_birth_utc(date_str, time_str, timezone_name, longitude):
     """
-    Resolve birth datetime to UTC, handling LMT (Local Mean Time).
-    
-    When timezone_name is 'LMT', calculates offset from longitude.
-    Otherwise uses the provided timezone.
-    
+    Build the datetime/timezone pair the Swiss Ephemeris API accepts.
+
     Returns dict with:
         - datetime: ISO string for API
-        - timezone: resolved timezone name
-        - utc_offset_hours: offset in hours
-        - is_lmt: whether LMT was used
-        - dst_fold: 0 or 1 (for DST ambiguity)
-        - dst_gap: True if time falls in DST gap
+        - timezone: IANA name (never "LMT")
+        - utc_offset_hours: LMT offset when LMT was applied
+        - is_lmt: whether LMT conversion was used
     """
-    result = {
-        'datetime': format_datetime_for_api(date_str, time_str),
-        'timezone': timezone_name,
-        'utc_offset_hours': 0,
-        'is_lmt': False,
-        'dst_fold': 0,
-        'dst_gap': False
-    }
-    
-    if timezone_name.upper() == 'LMT':
-        # Local Mean Time from longitude
+    if should_use_lmt(date_str, timezone_name):
         offset_hours = calculate_lmt_offset(longitude)
-        result['timezone'] = 'LMT'
-        result['utc_offset_hours'] = offset_hours
-        result['is_lmt'] = True
-        logger.info(f"Using LMT: offset {offset_hours:.4f} hours from longitude {longitude}")
-    else:
-        # Standard timezone
-        # Note: DST fold/gap detection would require pytz or zoneinfo
-        # For now, just pass through the timezone name
-        result['timezone'] = timezone_name
-        logger.info(f"Using timezone: {timezone_name}")
-    
-    return result
+        local = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+        utc = local - timedelta(hours=offset_hours)
+        logger.info(
+            "Using LMT: offset %.4f hours from longitude %s -> %s UTC",
+            offset_hours,
+            longitude,
+            utc.isoformat(timespec="seconds"),
+        )
+        return {
+            "datetime": utc.strftime("%Y-%m-%dT%H:%M:%S"),
+            "timezone": "UTC",
+            "utc_offset_hours": offset_hours,
+            "is_lmt": True,
+            "dst_fold": 0,
+            "dst_gap": False,
+        }
+
+    tz_name = timezone_name or "UTC"
+    logger.info("Using timezone: %s", tz_name)
+    return {
+        "datetime": format_datetime_for_api(date_str, time_str),
+        "timezone": tz_name,
+        "utc_offset_hours": 0,
+        "is_lmt": False,
+        "dst_fold": 0,
+        "dst_gap": False,
+    }

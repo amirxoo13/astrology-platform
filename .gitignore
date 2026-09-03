@@ -1,5 +1,6 @@
 .env
 ephe/
+certbot/
 *.pyc
 __pycache__/
 .vscode/

@@ -9,7 +9,7 @@
 - ✅ **Redis session cache** - ذخیره موقت جلسات کاربران
 - ✅ **GeoNames / Nominatim geocoding** - تشخیص مکان با انتخاب چند نتیجه
 - ✅ **SVG chart wheels** - چرخ چارت با aspect lines و stellium handling
-- ✅ **LMT support** - Local Mean Time از طول جغرافیایی
+- ✅ **LMT support** - برای تولد قبل از ۱۹۰۰، زمان محلی با `longitude/15` به UTC تبدیل می‌شود (API مقدار `LMT` را نمی‌پذیرد)
 - ✅ **وب سرور Nginx** - پروکسی /api/ و HTTPS اختیاری
 - ✅ **Docker Compose** - deployment آسان
 
@@ -27,9 +27,9 @@
 | تاریخ | 1879-03-14 |
 | زمان | 11:30 |
 | مکان | Ulm, Germany (48.4011,9.9876) |
-| منطقه زمانی | LMT (محاسبه خودکار از طول جغرافیایی) |
+| منطقه زمانی | LMT محل تولد (برای تاریخ‌های قبل از ۱۹۰۰) که بات آن را به UTC تبدیل می‌کند |
 
-بات از LMT (Local Mean Time) پشتیبانی می‌کند زمانی که تاریخ از معرفی منطقه زمانی استاندارد قدیمی‌تر باشد.
+Swiss Ephemeris API فقط نام IANA می‌پذیرد (`timezone: "LMT"` برابر HTTP 422 است). برای تولدهای قبل از ۱۹۰۰ بات زمان محلی را با فرمول `UTC offset = longitude / 15` به UTC تبدیل می‌کند و `timezone=UTC` می‌فرستد. برای تاریخ‌های جدیدتر از IANA (مثلاً `Europe/Berlin`) استفاده می‌شود.
 
 ## نصب و راه‌اندازی
 
@@ -108,7 +108,7 @@ curl -X POST http://localhost:8080/api/v1/birth-chart \
   -H "Content-Type: application/json" \
   -d '{
     "datetime": "1879-03-14T11:30:00",
-    "timezone": "LMT",
+    "timezone": "Europe/Berlin",
     "latitude": 48.4011,
     "longitude": 9.9876
   }'
@@ -118,7 +118,7 @@ curl -X POST http://localhost:8080/api/v1/aspects \
   -H "Content-Type: application/json" \
   -d '{
     "datetime": "1879-03-14T11:30:00",
-    "timezone": "LMT",
+    "timezone": "Europe/Berlin",
     "latitude": 48.4011,
     "longitude": 9.9876
   }'
@@ -126,12 +126,11 @@ curl -X POST http://localhost:8080/api/v1/aspects \
 
 ## api/patches/
 
-دو پچ برای swiss-ephemeris-api اعمال می‌شود:
+یک پچ روی swiss-ephemeris-api در commit پین‌شده `8a03d63` اعمال می‌شود:
 
-1. **0001-fix-asteroid-planet-ids.patch** - Chiron, Ceres, Pallas, Juno, Vesta از `getattr(swe, name)` استفاده می‌کنند نه شناسه‌های 1-4
-2. **0002-robust-house-cusp-indexing.patch** - تشخیص طول raw_cusps 13 یا 12 برای جلوگیری از IndexError
+**`0001-fix-aspects-asteroid-planet-ids.patch`** — در `app/api/v1/endpoints/aspects.py` شناسه‌های سیارک اشتباه بود (`CERES=1` که همان `swe.MOON` است). پچ همان نگاشت `swe.SUN` / `swe.CERES` / … موجود در `app/api/v1/endpoints/planets.py` را کپی می‌کند.
 
-این پچ‌ها در زمان build در api/Dockerfile اعمال می‌شوند.
+ایندکس خانه‌ها در `app/core/swisseph_core.py` از قبل `raw_cusps[1:13]` است و پچ جدا نمی‌خواهد.
 
 ## امنیت
 
